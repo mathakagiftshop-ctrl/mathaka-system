@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The staff application requires the owner email configured in `MATHAKA_OWNER_EMAIL`; Supabase sends a one-time sign-in link. Customer galleries and tokenized partner upload pages remain public.
+Open [http://localhost:3000](http://localhost:3000). `MATHAKA_OWNER_EMAIL` bootstraps the first owner account; the owner can then invite managers and staff from Settings. Supabase sends one-time sign-in links. Customer galleries, invoice approvals and tokenized partner upload pages remain public.
 
 Useful checks:
 
@@ -37,7 +37,11 @@ npm --prefix workers/whatsapp start
 - `/celebrations/:id` — editable order journey, tasks, partners, money and media
 - `/partners` — live partner capabilities, reliability and balances
 - `/money` — estimated versus reconciled order finances
+- `/billing` — quotes, proformas, invoices, advance requests, payment balances and secure sharing
+- `/studio` — customers, catalogue, calendar, alerts, reports, stock and task templates
+- `/settings` — business identity, invoice defaults, terms, team roles and invitations
 - `/settings/connections` — live Supabase, WhatsApp worker and Gemini connection status
+- `/approve/:token` — expiring customer quote/proforma review and approval
 - `/partner/upload/:token` — scoped private partner work card and upload page
 - `/gallery/:token` — expiring private customer gallery
 
@@ -51,7 +55,7 @@ The Next.js App Router application hosts the staff UI, customer gallery, partner
 
 This test project already contains the legacy Mathaka schema (`invoices`, `customers`, `recipients`, `vendors`, payments and expenses). The application reads those records server-side through the IPv4-compatible Supabase pooler and maps invoices into celebration journeys.
 
-`supabase/migrations/202608070002_legacy_compatibility.sql` has been applied non-destructively. It adds journey tasks, media requirements, private share links, WhatsApp connections/messages/outbox, AI-extracted facts and integration commands without duplicating the legacy order tables. All newly added tables have RLS enabled and intentionally have no browser policies yet.
+`supabase/migrations/202608070002_legacy_compatibility.sql` adds journey tasks, media requirements, private share links, WhatsApp connections/messages/outbox, AI-extracted facts and integration commands without duplicating the legacy order tables. `202608100005_team_billing_settings.sql` adds team membership, business/invoice settings, immutable customer-facing billing documents, payment verification/allocation, catalogue, inventory, task templates and audit records. Apply migrations in timestamp order. All newly added tables have RLS enabled and intentionally have no browser policies yet.
 
 `supabase/migrations/202608070001_initial_schema.sql` is retained only for a brand-new empty Supabase project. Do not apply it to the legacy test project because its customer and recipient table names overlap.
 
@@ -82,11 +86,14 @@ Hide this behind a provider interface so the system can migrate to Meta's offici
 
 ## Environment
 
-Copy `.env.example` to `.env.local` when connecting services. `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` may be used by the browser. `MATHAKA_OWNER_EMAIL` is the only email allowed into staff routes. `DATABASE_URL`, service-role and worker secrets must remain server-only. The worker uses Google Application Default Credentials with `GOOGLE_CLOUD_PROJECT`. Configure the deployed URL as an allowed Supabase Auth redirect before production login.
+Copy `.env.example` to `.env.local` when connecting services. `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` may be used by the browser. `MATHAKA_OWNER_EMAIL` is used only to bootstrap the first owner; active membership and role permissions control access afterward. `DATABASE_URL`, service-role and worker secrets must remain server-only. `SUPABASE_SERVICE_ROLE_KEY` is required to send team invitations. The worker uses Google Application Default Credentials with `GOOGLE_CLOUD_PROJECT`. Configure the deployed URL as an allowed Supabase Auth redirect before production login.
 
 ## Product notes
 
 - Financial pages explicitly distinguish estimated and actual values.
+- Advance payments remain pending until verified and are allocated separately from customer-facing invoices.
+- Issued billing documents snapshot business details, customer details, items, terms and payment instructions so later settings changes cannot rewrite history.
+- Document numbers are allocated transactionally at issue time and are never reused after voiding.
 - A receipt image is extracted by AI but must still be verified or matched to a bank transaction.
 - Profit is finalized only after delivery, refunds, partner balances and actual costs are reconciled.
 - Customer updates are milestone-based and manually approved in this release.

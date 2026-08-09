@@ -1,21 +1,20 @@
-import { NextResponse } from "next/server";
-import { getOwner } from "@/lib/server/auth";
-import { getDatabase } from "@/lib/server/database";
-import { paymentCreateSchema } from "@/lib/server/validation";
+import {NextResponse} from "next/server";
+import {requirePermission} from "@/lib/server/auth";
+import {getDatabase} from "@/lib/server/database";
+import {verifiedPaymentCreateSchema} from "@/lib/server/validation";
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await getOwner())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { id } = await params;
-  if (!/^\d+$/.test(id)) return NextResponse.json({ error: "Invalid celebration" }, { status: 400 });
-  const parsed = paymentCreateSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Invalid payment", details: parsed.error.flatten() }, { status: 400 });
-  const sql = getDatabase();
-  const rows = await sql<{ id: string }[]>`
-    insert into public.payments (invoice_id, amount, payment_method, notes)
-    select ${Number(id)}, ${parsed.data.amount}, ${parsed.data.paymentMethod}, ${parsed.data.notes ?? null}
-    where exists (select 1 from public.invoices where id = ${Number(id)}) returning id::text
-  `;
-  if (!rows.length) return NextResponse.json({ error: "Celebration not found" }, { status: 404 });
-  await sql`update public.invoices set amount_paid = (select coalesce(sum(amount),0) from public.payments where invoice_id = ${Number(id)}), paid_at = case when (select coalesce(sum(amount),0) from public.payments where invoice_id = ${Number(id)}) >= total then now() else paid_at end where id = ${Number(id)}`;
-  return NextResponse.json({ payment: { id: rows[0].id, ...parsed.data } }, { status: 201 });
+export async function POST(request:Request,{params}:{params:Promise<{id:string}>}){
+ const staff=await requirePermission("finance.write");if(!staff)return NextResponse.json({error:"Forbidden"},{status:403});const {id}=await params;if(!/^\d+$/.test(id))return NextResponse.json({error:"Invalid celebration"},{status:400});
+ const parsed=verifiedPaymentCreateSchema.safeParse(await request.json().catch(()=>null));if(!parsed.success)return NextResponse.json({error:"Invalid payment",details:parsed.error.flatten()},{status:400});
+ const sql=getDatabase(),billingDocumentId=parsed.data.billingDocumentId;try{const payment=await sql.begin(async tx=>{
+   const invoices=await tx`select id,total from public.invoices where id=${Number(id)} for update`;if(!invoices[0])throw new Error("NOT_FOUND");
+   if(parsed.data.reference){const duplicate=await tx`select 1 from public.payments where invoice_id=${Number(id)} and lower(reference)=lower(${parsed.data.reference}) and reversed_at is null`;if(duplicate[0])throw new Error("DUPLICATE_REFERENCE");}
+   let document:null|Record<string,unknown>=null;
+   if(billingDocumentId){const docs=await tx`select id,invoice_id,total,status from public.billing_documents where id=${billingDocumentId}::uuid and organization_id=${staff.organizationId}::uuid for update`;document=docs[0]||null;if(!document||Number(document.invoice_id)!==Number(id)||document.status==='draft'||document.status==='void')throw new Error("INVALID_DOCUMENT");const allocations=await tx`select coalesce(sum(a.amount),0) allocated from public.billing_payment_allocations a join public.payments p on p.id=a.payment_id where a.billing_document_id=${billingDocumentId}::uuid and p.verification_status='verified' and p.reversed_at is null`;if(Number(allocations[0].allocated)+(parsed.data.verificationStatus==='verified'?parsed.data.amount:0)>Number(document.total))throw new Error("OVER_ALLOCATION");}
+   const rows=await tx<{id:string}[]>`insert into public.payments(invoice_id,amount,payment_method,notes,received_at,reference,proof_storage_path,verification_status,recorded_by,verified_by,verified_at) values(${Number(id)},${parsed.data.amount},${parsed.data.paymentMethod},${parsed.data.notes??null},${parsed.data.receivedAt??new Date().toISOString()},${parsed.data.reference??null},${parsed.data.proofStoragePath??null},${parsed.data.verificationStatus},${staff.subject}::uuid,case when ${parsed.data.verificationStatus}='verified' then ${staff.subject}::uuid end,case when ${parsed.data.verificationStatus}='verified' then now() end) returning id::text`;
+   if(document&&billingDocumentId)await tx`insert into public.billing_payment_allocations(billing_document_id,payment_id,amount,allocated_by) values(${billingDocumentId}::uuid,${Number(rows[0].id)},${parsed.data.amount},${staff.subject}::uuid)`;
+   if(billingDocumentId)await tx`update public.billing_documents d set status=case when coalesce((select sum(a.amount) from public.billing_payment_allocations a join public.payments p on p.id=a.payment_id where a.billing_document_id=d.id and p.verification_status='verified' and p.reversed_at is null),0)>=d.total then 'paid' when coalesce((select sum(a.amount) from public.billing_payment_allocations a join public.payments p on p.id=a.payment_id where a.billing_document_id=d.id and p.verification_status='verified' and p.reversed_at is null),0)>0 then 'partially_paid' when d.due_date<current_date then 'overdue' else 'issued' end,updated_at=now() where d.id=${billingDocumentId}::uuid`;
+   await tx`update public.invoices set amount_paid=(select coalesce(sum(amount),0) from public.payments where invoice_id=${Number(id)} and verification_status='verified' and reversed_at is null),paid_at=case when (select coalesce(sum(amount),0) from public.payments where invoice_id=${Number(id)} and verification_status='verified' and reversed_at is null)>=total then now() else null end where id=${Number(id)}`;
+   return {id:rows[0].id,...parsed.data};
+ });return NextResponse.json({payment},{status:201});}catch(error){const code=error instanceof Error?error.message:"";if(code==="NOT_FOUND")return NextResponse.json({error:"Celebration not found"},{status:404});if(code==="DUPLICATE_REFERENCE")return NextResponse.json({error:"That payment reference is already recorded"},{status:409});if(code==="INVALID_DOCUMENT")return NextResponse.json({error:"Billing document does not belong to this studio and celebration"},{status:409});if(code==="OVER_ALLOCATION")return NextResponse.json({error:"Payment exceeds the document balance"},{status:409});console.error("Payment creation failed",error);return NextResponse.json({error:"Payment could not be recorded"},{status:500});}
 }

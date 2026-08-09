@@ -1,0 +1,2 @@
+import {NextResponse} from "next/server";import {requirePermission} from "@/lib/server/auth";import {issueBilling} from "@/lib/server/billing";import {routeError} from "@/lib/server/errors";
+export async function POST(_r:Request,{params}:{params:Promise<{id:string}>}){const s=await requirePermission("finance.write");if(!s)return NextResponse.json({error:"Forbidden"},{status:403});try{return NextResponse.json({invoice:await issueBilling((await params).id,s)});}catch(e){return routeError(e,"Invoice could not be issued")}}

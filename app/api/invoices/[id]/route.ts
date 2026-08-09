@@ -1,0 +1,2 @@
+import {NextResponse} from "next/server";import {requirePermission} from "@/lib/server/auth";import {getBilling} from "@/lib/server/billing";import {routeError} from "@/lib/server/errors";
+export async function GET(_r:Request,{params}:{params:Promise<{id:string}>}){const s=await requirePermission("finance.read");if(!s)return NextResponse.json({error:"Forbidden"},{status:403});try{return NextResponse.json({invoice:await getBilling((await params).id,s.organizationId)});}catch(e){return routeError(e)}}

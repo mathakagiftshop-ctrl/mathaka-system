@@ -148,7 +148,7 @@ const orderSelect = `
     i.total,
     coalesce(j.revision, 1)::text as journey_revision,
     (select wc.id::text from public.whatsapp_messages wm join public.whatsapp_conversations wc on wc.id = wm.conversation_id where wm.invoice_id = i.id order by wm.sent_at desc limit 1) as conversation_id,
-    coalesce(i.amount_paid, (select sum(p.amount) from public.payments p where p.invoice_id = i.id), 0) as amount_paid,
+    coalesce((select sum(p.amount) from public.payments p where p.invoice_id = i.id and coalesce(p.verification_status,'verified')='verified' and p.reversed_at is null), 0) as amount_paid,
     coalesce(i.total_cost,
       (select sum(e.amount) from public.expenses e where e.invoice_id = i.id), 0
     ) as total_cost,
@@ -226,7 +226,7 @@ export async function getSupabaseOrder(id: string): Promise<CelebrationOrder | n
     id: string; label: string; amount: string | number; entry_type: LedgerEntry["type"]; is_estimate: boolean;
   }[]>`
     select id::text, coalesce(notes, payment_method, 'Customer payment') as label, amount, 'revenue'::text as entry_type, false as is_estimate
-    from public.payments where invoice_id = ${Number(id)}
+    from public.payments where invoice_id = ${Number(id)} and coalesce(verification_status,'verified')='verified' and reversed_at is null
     union all
     select id::text, description as label, amount, 'expense'::text as entry_type, false as is_estimate
     from public.expenses where invoice_id = ${Number(id)}

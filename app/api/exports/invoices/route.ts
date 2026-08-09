@@ -1,0 +1,3 @@
+import {requirePermission} from "@/lib/server/auth";import {listBilling} from "@/lib/server/billing";
+const cell=(v:unknown)=>`"${String(v??'').replaceAll('"','""')}"`;
+export async function GET(){const s=await requirePermission("finance.read");if(!s)return new Response("Unauthorized",{status:401});const rows=await listBilling(s.organizationId);const csv=["Document number,Type,Status,Customer,Issue date,Due date,Total,Paid",...rows.map((r:Record<string,unknown>)=>[r.document_number,r.document_type,r.status,r.customer_name,r.issue_date,r.due_date,r.total,r.paid].map(cell).join(','))].join('\n');return new Response(csv,{headers:{"content-type":"text/csv; charset=utf-8","content-disposition":`attachment; filename="mathaka-invoices.csv"`}});}

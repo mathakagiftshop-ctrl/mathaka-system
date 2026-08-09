@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftPatchSchema, draftSnapshotSchema, manualCelebrationSchema, mediaCreateSchema, orderPatchSchema, partnerCreateSchema, taskPatchSchema } from "@/lib/server/validation";
+import { billingDraftSchema, catalogItemSchema, draftPatchSchema, draftSnapshotSchema, inventoryAdjustmentSchema, invoiceSettingsSchema, manualCelebrationSchema, mediaCreateSchema, memberInviteSchema, orderPatchSchema, partnerCreateSchema, taskPatchSchema, taskTemplateSchema, verifiedPaymentCreateSchema } from "@/lib/server/validation";
 
 const validDraft = {
   sender: { name: "Nadeesha", phone: "+94770000000", country: "Australia" },
@@ -28,6 +28,24 @@ describe("AI draft validation", () => {
     expect(draftPatchSchema.safeParse({}).success).toBe(false);
     expect(draftPatchSchema.safeParse({ snapshot: validDraft, expectedRevision: 2 }).success).toBe(true);
     expect(draftPatchSchema.safeParse({ action: "confirm", expectedRevision: 0 }).success).toBe(false);
+  });
+});
+
+describe("team and billing validation",()=>{
+  it("accepts an advance invoice and verified payment",()=>{
+    expect(billingDraftSchema.safeParse({documentType:"invoice",currency:"LKR",requestedPaymentAmount:5000,items:[{description:"Celebration package",quantity:1,unitPrice:15000}]}).success).toBe(true);
+    expect(verifiedPaymentCreateSchema.safeParse({amount:5000,paymentMethod:"bank_transfer",verificationStatus:"verified",reference:"TX-100"}).success).toBe(true);
+  });
+  it("rejects unsafe member roles and invoice numbering",()=>{
+    expect(memberInviteSchema.safeParse({email:"sister@example.com",role:"owner"}).success).toBe(false);
+    expect(invoiceSettingsSchema.safeParse({numberPrefix:"../bad",numberPadding:2,defaultDueDays:7,defaultTerms:"",paymentInstructions:"",bankDetails:{},defaultDepositPercent:50,footerText:""}).success).toBe(false);
+  });
+});
+describe("studio operations validation",()=>{
+  it("validates catalogue, stock adjustments, and task templates",()=>{
+    expect(catalogItemSchema.safeParse({name:"Birthday package",category:"package",unitPrice:15000,costPrice:8000}).success).toBe(true);
+    expect(inventoryAdjustmentSchema.safeParse({inventoryItemId:"019fe733-7a89-74f2-9858-86a66742ee00",quantityDelta:-2,reason:"Used for order"}).success).toBe(true);
+    expect(taskTemplateSchema.safeParse({name:"Birthday",steps:[{title:"Confirm cake",kind:"cake",offsetHours:-24}]}).success).toBe(true);
   });
 });
 

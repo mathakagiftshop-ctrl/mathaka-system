@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, HandCoins, LogOut, Menu, MessageCircle, PartyPopper, PlugZap, Store, X } from "lucide-react";
+import { CalendarDays, FileText, HandCoins, LogOut, Menu, MessageCircle, PartyPopper, Settings, Store, SwatchBook, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -13,7 +13,9 @@ const links = [
   { href: "/chats", label: "Chats", icon: MessageCircle },
   { href: "/partners", label: "Partners", icon: Store },
   { href: "/money", label: "Money", icon: HandCoins },
-  { href: "/settings/connections", label: "Connections", icon: PlugZap },
+  { href: "/billing", label: "Billing", icon: FileText },
+  { href: "/studio", label: "Studio", icon: SwatchBook },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

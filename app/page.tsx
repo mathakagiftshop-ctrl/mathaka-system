@@ -18,7 +18,7 @@ export default function TodayPage() {
   return <AppShell><div className="page today-page">
     <header className="page-header">
       <div><span className="eyebrow">{today} · {source === "supabase" ? "Live studio" : source === "loading" ? "Syncing celebrations" : "Connection needs attention"}</span><h1>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, Sachin.</h1><p>{attention.length ? `${attention.length} celebrations need your touch.` : "Every celebration is moving beautifully."}</p></div>
-      <Link className="primary-button" href="/celebrations/new"><Plus size={18}/>New celebration</Link>
+      <div className="detail-actions"><Link className="secondary-button" href="/billing"><ReceiptText size={17}/>Billing desk</Link><Link className="primary-button" href="/celebrations/new"><Plus size={18}/>New celebration</Link></div>
     </header>
     <section className="today-ribbon" aria-label="Today summary">
       <div className="ribbon-lead"><Sparkles size={21}/><span><strong>Today at a glance</strong><small>Your studio is in good shape.</small></span></div>

@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function AccessDenied(){return <main className="login-page"><section className="login-card-wrap"><div className="login-card"><span className="eyebrow">Studio access</span><h2>This account is not active.</h2><p>Ask the Mathaka owner to invite this email or restore your team access.</p><Link className="primary-button" href="/login">Use another email</Link></div></section></main>}

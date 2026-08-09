@@ -1,0 +1,2 @@
+import {NextResponse} from "next/server";import {requirePermission} from "@/lib/server/auth";import {getStudioSettings} from "@/lib/server/settings";
+export async function GET(){const s=await requirePermission("studio.read");if(!s)return NextResponse.json({error:"Unauthorized"},{status:401});const settings=await getStudioSettings(s.organizationId);return NextResponse.json({settings,business:settings.business,invoice:settings.invoice,terms:settings.invoice?.default_terms?[{id:"default",name:"Default terms",body:settings.invoice.default_terms}]:[]});}
