@@ -1,0 +1,9 @@
+node_modules
+.next
+workers/whatsapp/dist
+supabase/.temp
+.env.local
+*.log
+*.tsbuildinfo
+.DS_Store
+backups/
