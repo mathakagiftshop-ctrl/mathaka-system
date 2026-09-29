@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs"
+    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
+    "storage:cors": "node --env-file-if-exists=.env.local scripts/storage-cors.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1143.0",

@@ -21,6 +21,10 @@ function s3() {
     region: env("REGION") || "auto",
     endpoint: env("ENDPOINT_URL") || env("ENDPOINT_URL_S3"),
     credentials: { accessKeyId: env("ACCESS_KEY_ID")!, secretAccessKey: env("SECRET_ACCESS_KEY")! },
+    // Without these, presigned browser uploads carry checksum headers that
+    // S3-compatible stores (Neon, R2) reject.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
   return client;
 }
