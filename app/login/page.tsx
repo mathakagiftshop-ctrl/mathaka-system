@@ -1,20 +1,27 @@
-import { Gift, LockKeyhole, ShieldCheck } from "lucide-react";
-import { LoginForm } from "./login-form";
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { getUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { LoginForm, SetupForm } from "@/app/login/login-form";
 
-export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Sign in" };
 
-export default function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  if (await getUser()) redirect("/");
+  const { next } = await searchParams;
+  const [{ count }] = await db()<{ count: number }[]>`select count(*)::int as count from users`;
+  const firstRun = count === 0;
   return (
-    <main className="login-page">
-      <section className="login-story">
-        <div className="login-brand"><span className="brand-mark"><span/></span><span><strong>Mathaka</strong><small>Celebration studio</small></span></div>
-        <div><span className="eyebrow">The private studio door</span><h1>Welcome back<br/>to the magic.</h1><p>Orders, conversations, partner payments and celebration memories stay behind one owner-only sign-in.</p></div>
-        <div className="login-trust"><span><ShieldCheck/>Verified by Supabase Auth</span><span><LockKeyhole/>WhatsApp pairing stays private</span></div>
-      </section>
-      <section className="login-card-wrap">
-        <div className="login-card-mark"><Gift/></div>
-        <div className="login-card"><span className="eyebrow">Owner access</span><h2>Open the studio</h2><p>We’ll email you a one-time link. No password to remember, and the link expires automatically.</p><LoginForm/><small>Only the registered Mathaka owner email can enter.</small></div>
-      </section>
-    </main>
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="brand">
+          <span className="brand-mark"><span /></span>
+          <div><strong>Mathaka</strong><small>Celebration studio</small></div>
+        </div>
+        <h1>{firstRun ? "Set up your studio" : "Welcome back"}</h1>
+        <p>{firstRun ? "Create the owner account. You can add your team from Settings afterwards." : "Sign in to manage orders, partners and money."}</p>
+        {firstRun ? <SetupForm /> : <LoginForm next={next} />}
+      </div>
+    </div>
   );
 }

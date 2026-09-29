@@ -1,20 +1,31 @@
 "use client";
 
 import { useActionState } from "react";
-import { LoaderCircle, Mail, Sparkles } from "lucide-react";
-import { sendMagicLink, type LoginState } from "./actions";
+import { FormMessage, Submit } from "@/components/form";
+import { setupOwner, signIn } from "@/app/login/actions";
 
-const initialState: LoginState = { status: "idle", message: "" };
-
-export function LoginForm() {
-  const [state, action, pending] = useActionState(sendMagicLink, initialState);
-
+export function LoginForm({ next }: { next?: string }) {
+  const [state, action] = useActionState(signIn, {});
   return (
-    <form action={action} className="login-form">
-      <label htmlFor="email">Studio owner email</label>
-      <div className="login-input"><Mail size={18}/><input id="email" name="email" type="email" autoComplete="email" required placeholder="you@example.com" /></div>
-      <button type="submit" disabled={pending}>{pending ? <LoaderCircle className="spin" size={18}/> : <Sparkles size={18}/>}Send secure sign-in link</button>
-      {state.message && <p className={`login-message ${state.status}`} role="status">{state.message}</p>}
+    <form action={action} className="form">
+      <input type="hidden" name="next" value={next ?? "/"} />
+      <label className="field"><span>Email</span><input name="email" type="email" autoComplete="email" required autoFocus /></label>
+      <label className="field"><span>Password</span><input name="password" type="password" autoComplete="current-password" required /></label>
+      <FormMessage state={state} />
+      <Submit pendingText="Signing in…">Sign in</Submit>
+    </form>
+  );
+}
+
+export function SetupForm() {
+  const [state, action] = useActionState(setupOwner, {});
+  return (
+    <form action={action} className="form">
+      <label className="field"><span>Your name</span><input name="name" required autoComplete="name" /></label>
+      <label className="field"><span>Owner email</span><input name="email" type="email" required autoComplete="email" /></label>
+      <label className="field"><span>Password</span><input name="password" type="password" minLength={10} required autoComplete="new-password" /><small>At least 10 characters.</small></label>
+      <FormMessage state={state} />
+      <Submit pendingText="Creating…">Create owner account</Submit>
     </form>
   );
 }

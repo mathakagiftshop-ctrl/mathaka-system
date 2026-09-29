@@ -1,47 +1,180 @@
-"use client";
-
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { Activity, AlertCircle, BadgeCheck, Building2, ChevronRight, FileText, KeyRound, LoaderCircle, RefreshCw, Save, ShieldCheck, UserPlus, Users, X } from "lucide-react";
-import { AccessibleDialog } from "@/components/accessible-dialog";
+import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
-import { Toast } from "@/components/ui";
+import { Badge, PageHeader } from "@/components/bits";
+import { ActionButton, ActionForm, Field, Select, Submit, TextArea } from "@/components/form";
+import {
+  addUser, deleteTerm, removeLogo, saveBusiness, saveInvoiceSettings, saveSplit, saveTerm, updateUser, uploadLogo,
+} from "@/app/settings/actions";
+import { requireUser } from "@/lib/auth";
+import { getSettings, listTerms, listUsers } from "@/lib/data/settings";
+import { formatDateTime } from "@/lib/format";
+import { isStorageConfigured, viewUrl } from "@/lib/storage";
 
-const tabs = [{ id: "business", label: "Business profile", icon: Building2 }, { id: "billing", label: "Billing defaults", icon: FileText }, { id: "terms", label: "Terms", icon: BadgeCheck }, { id: "team", label: "Team & permissions", icon: Users }, { id: "security", label: "Security & activity", icon: ShieldCheck }] as const;
-type Tab = typeof tabs[number]["id"];
-type Settings = { businessName: string; logoUrl: string; address: string; phone: string; email: string; taxId: string; registrationNumber: string; currency: string; timezone: string; bankInstructions: string; documentPrefix: string; numberPadding: number; nextSequence: number; defaultDueDays: number; defaultDepositPercent: number; taxEnabled: boolean; taxPercent: number; footer: string; signatureText: string; defaultTermsId: string; defaultTerms: string };
-type Term = { id: string; name: string; body: string; isDefault?: boolean; updatedAt?: string };
-type Member = { id: string; name: string; email: string; role: "owner" | "manager" | "staff"; status: string; lastActiveAt?: string };
-type Audit = { id?: string; action: string; detail?: string; actor?: string; createdAt: string };
-const defaults: Settings = { businessName: "Mathaka", logoUrl: "", address: "", phone: "", email: "", taxId: "", registrationNumber: "", currency: "LKR", timezone: "Asia/Colombo", bankInstructions: "", documentPrefix: "MTH", numberPadding: 5, nextSequence: 1, defaultDueDays: 7, defaultDepositPercent: 50, taxEnabled: false, taxPercent: 18, footer: "Thank you for celebrating with Mathaka.", signatureText: "With care, Mathaka", defaultTermsId: "", defaultTerms: "" };
+export const metadata: Metadata = { title: "Settings" };
 
-export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>("business"); const [settings, setSettings] = useState(defaults); const [terms, setTerms] = useState<Term[]>([]); const [members, setMembers] = useState<Member[]>([]); const [activity, setActivity] = useState<Audit[]>([]); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(""); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [inviting, setInviting] = useState(false); const [termEditor, setTermEditor] = useState<Term | "new" | null>(null);
-  const load = useCallback(async () => { setLoading(true); setError(""); try { const [businessResponse, invoiceResponse, teamResponse, overviewResponse] = await Promise.all([fetch("/api/settings/business", { cache: "no-store" }), fetch("/api/settings/invoices", { cache: "no-store" }), fetch("/api/settings/team", { cache: "no-store" }), fetch("/api/settings", { cache: "no-store" })]); const business = await businessResponse.json(); const invoice = await invoiceResponse.json(); const teamPayload = await teamResponse.json(); const overview = await overviewResponse.json(); if (!businessResponse.ok || !invoiceResponse.ok) throw new Error("Studio settings could not be loaded."); const savedTerms = parseTerms(invoice.bank_details?.termTemplates, invoice.default_terms || ""); const defaultTermsId = String(invoice.bank_details?.defaultTermsId || savedTerms[0]?.id || ""); setSettings({ ...defaults, businessName: business.name || defaults.businessName, logoUrl: invoice.bank_details?.logoUrl || "", address: business.address || "", phone: business.phone || "", email: business.email || "", taxId: business.tax_identifier || "", registrationNumber: business.registration_number || "", currency: business.currency || "LKR", timezone: business.timezone || "Asia/Colombo", documentPrefix: invoice.number_prefix || "MTH", numberPadding: Number(invoice.number_padding || 5), nextSequence: Number(invoice.next_number || 1), defaultDueDays: Number(invoice.default_due_days || 7), defaultDepositPercent: Number(invoice.default_deposit_percent || 50), defaultTerms: invoice.default_terms || "", defaultTermsId, taxEnabled: invoice.bank_details?.taxEnabled === "true", taxPercent: Number(invoice.bank_details?.taxPercent || 18), bankInstructions: invoice.payment_instructions || "", footer: invoice.footer_text || "", signatureText: invoice.bank_details?.signature || "" }); setTerms(savedTerms); const active = (teamPayload.members || []).map((member: Record<string, unknown>) => ({ id: String(member.id), name: String(member.display_name || member.email || "Team member"), email: String(member.email || ""), role: member.role, status: member.status, lastActiveAt: member.last_seen_at })); const invited = (teamPayload.invitations || []).map((member: Record<string, unknown>) => ({ id: String(member.id), name: String(member.display_name || member.email || "Invited teammate"), email: String(member.email || ""), role: member.role, status: "invited" })); setMembers([...active, ...invited] as Member[]); setActivity((overview.activity || overview.audit || []).map((entry: Record<string,unknown>) => ({ id: entry.id ? String(entry.id) : undefined, action: String(entry.action || entry.event_type || "Studio change"), detail: String(entry.detail || entry.entity_type || ""), actor: String(entry.actor || entry.actor_name || "Studio team"), createdAt: String(entry.createdAt || entry.created_at || "") }))); } catch (caught) { setError(caught instanceof Error ? caught.message : "Studio settings could not be loaded."); } finally { setLoading(false); } }, []);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
-  useEffect(() => { const controller = new AbortController(); Promise.all([fetch("/api/settings/terms", { cache: "no-store", signal: controller.signal }), fetch("/api/settings/activity?limit=100", { cache: "no-store", signal: controller.signal })]).then(async ([termsResponse, activityResponse]) => { const termsPayload = await termsResponse.json(); const activityPayload = await activityResponse.json(); if (termsResponse.ok) setTerms((termsPayload.terms || []).map((term: Record<string,unknown>) => ({ id: String(term.id), name: String(term.name), body: String(term.body), isDefault: Boolean(term.is_default), updatedAt: String(term.updated_at || "") }))); if (activityResponse.ok) setActivity((activityPayload.activity || []).map((entry: Record<string,unknown>) => ({ id: String(entry.id), action: String(entry.action || "Studio change"), detail: String(entry.detail || entry.entity_type || ""), actor: String(entry.actor || "Studio team"), createdAt: String(entry.created_at || "") }))); }).catch((caught) => { if (!(caught instanceof DOMException && caught.name === "AbortError")) setError("Terms and activity could not be refreshed."); }); return () => controller.abort(); }, []);
-  async function saveSettings(nextSettings = settings, nextTerms = terms) { setBusy("settings"); setError(""); try { const business = { name: nextSettings.businessName, email: nextSettings.email || null, phone: nextSettings.phone || null, address: nextSettings.address || null, registrationNumber: nextSettings.registrationNumber || null, taxIdentifier: nextSettings.taxId || null, currency: nextSettings.currency, timezone: nextSettings.timezone }; const invoice = invoicePayload(nextSettings, nextTerms); const [businessResponse, invoiceResponse] = await Promise.all([fetch("/api/settings/business", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(business) }), fetch("/api/settings/invoices", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(invoice) })]); const payload = await (tab === "business" ? businessResponse : invoiceResponse).json(); if (!businessResponse.ok || !invoiceResponse.ok) throw new Error(payload.error || "Settings could not be saved."); setNotice("Studio settings saved."); } catch (caught) { setError(caught instanceof Error ? caught.message : "Settings could not be saved."); } finally { setBusy(""); } }
-  async function memberAction(member: Member, action: string) { if (member.status === "invited") { setError("Pending invitations expire after seven days; invite the email again to refresh it."); return; } setBusy(member.id + action); setError(""); try { const response = await fetch(`/api/settings/team/members/${member.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: action === "deactivate" ? "suspended" : "active" }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "The team account could not be updated."); setNotice(action === "deactivate" ? "Team account suspended." : "Team account restored."); void load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "The team account could not be updated."); } finally { setBusy(""); } }
-  async function saveTerm(term: Term) { const existing = termEditor !== "new" && termEditor; setBusy("term"); setError(""); try { const response = await fetch(existing ? `/api/settings/terms/${term.id}` : "/api/settings/terms", { method: existing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: term.name, body: term.body, isDefault: Boolean(term.isDefault), active: true }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "The terms template could not be saved."); setTermEditor(null); setNotice("Terms template saved."); void load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "The terms template could not be saved."); } finally { setBusy(""); } }
-  async function setDefaultTerm(term: Term) { setBusy("term"); try { const response = await fetch(`/api/settings/terms/${term.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: term.name, body: term.body, isDefault: true, active: true }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "The default template could not be changed."); setNotice("Default terms template changed."); void load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "The default template could not be changed."); } finally { setBusy(""); } }
-  async function deleteTerm(term: Term) { setBusy("term"); try { const response = await fetch(`/api/settings/terms/${term.id}`, { method: "DELETE" }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "The template could not be deleted."); setNotice("Terms template deleted."); void load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "The template could not be deleted."); } finally { setBusy(""); } }
-  return <AppShell><div className="page settings-page"><header className="page-header"><div><span className="eyebrow">Studio settings</span><h1>The rules behind the magic.</h1><p>Keep business details, billing language and team access consistent in one protected ledger.</p></div>{["business","billing"].includes(tab) && <button className="primary-button" onClick={() => void saveSettings()} disabled={busy === "settings"}>{busy === "settings" ? <LoaderCircle className="spin" size={16}/> : <Save size={16}/>}Save changes</button>}</header>
-    {error && <div className="operational-notice error" role="alert"><AlertCircle size={18}/><span>{error}</span><button onClick={() => void load()}><RefreshCw size={14}/>Reload</button></div>}
-    <Link className="connection-banner" href="/settings/connections"><span><KeyRound size={21}/><span><small>Connected tools</small><strong>WhatsApp, AI extraction & database</strong></span></span><span>Manage connections <ChevronRight size={17}/></span></Link>
-    <div className="settings-ledger"><nav aria-label="Settings sections">{tabs.map(({ id, label, icon: Icon }) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}><Icon size={17}/>{label}<i/></button>)}</nav><main>{loading ? <div className="directory-loading"><LoaderCircle className="spin"/>Opening the studio ledger…</div> : <>
-      {tab === "business" && <SettingsSection eyebrow="Studio identity" title="Business profile" note="These details appear on new documents. Issued documents preserve their original snapshot."><div className="settings-fields"><Field label="Business name" value={settings.businessName} set={(businessName) => setSettings({ ...settings, businessName })}/><Field label="Logo URL or path" value={settings.logoUrl} set={(logoUrl) => setSettings({ ...settings, logoUrl })}/><Field label="Phone" value={settings.phone} set={(phone) => setSettings({ ...settings, phone })} type="tel"/><Field label="Email" value={settings.email} set={(email) => setSettings({ ...settings, email })} type="email"/><Field label="TIN / VAT identifier" value={settings.taxId} set={(taxId) => setSettings({ ...settings, taxId })}/><label>Currency<select value={settings.currency} onChange={(event) => setSettings({ ...settings, currency: event.target.value })}><option value="LKR">LKR · Sri Lankan rupee</option><option value="USD">USD · US dollar</option></select></label><label>Timezone<select value={settings.timezone} onChange={(event) => setSettings({ ...settings, timezone: event.target.value })}><option value="Asia/Colombo">Asia/Colombo</option></select></label><label className="wide">Business address<textarea rows={3} value={settings.address} onChange={(event) => setSettings({ ...settings, address: event.target.value })}/></label><label className="wide">Bank & payment instructions<textarea rows={5} value={settings.bankInstructions} onChange={(event) => setSettings({ ...settings, bankInstructions: event.target.value })}/></label></div></SettingsSection>}
-      {tab === "billing" && <SettingsSection eyebrow="Document rules" title="Billing defaults" note="Defaults speed up document creation; each draft can still be adjusted before issue."><div className="settings-fields"><Field label="Document prefix" value={settings.documentPrefix} set={(documentPrefix) => setSettings({ ...settings, documentPrefix })}/><label>Next sequence<span className="sequence-display">{settings.documentPrefix}-{String(settings.nextSequence).padStart(5,"0")}</span><small>Assigned by the server when issued.</small></label><NumberField label="Default due days" value={settings.defaultDueDays} set={(defaultDueDays) => setSettings({ ...settings, defaultDueDays })}/><NumberField label="Default deposit %" value={settings.defaultDepositPercent} set={(defaultDepositPercent) => setSettings({ ...settings, defaultDepositPercent })}/><label className="toggle-field"><span><strong>VAT / tax mode</strong><small>Add the configured tax rate to new documents.</small></span><input type="checkbox" checked={settings.taxEnabled} onChange={(event) => setSettings({ ...settings, taxEnabled: event.target.checked })}/></label><NumberField label="Tax percentage" value={settings.taxPercent} set={(taxPercent) => setSettings({ ...settings, taxPercent })} disabled={!settings.taxEnabled}/><label className="wide">Invoice footer<textarea rows={3} value={settings.footer} onChange={(event) => setSettings({ ...settings, footer: event.target.value })}/></label><label className="wide">Signature text<textarea rows={3} value={settings.signatureText} onChange={(event) => setSettings({ ...settings, signatureText: event.target.value })}/></label></div></SettingsSection>}
-      {tab === "terms" && <SettingsSection eyebrow="Reusable language" title="Terms templates" note="Create clear reusable policies, then choose which template new drafts receive." action={<button className="primary-button" onClick={() => setTermEditor("new")}><FileText size={15}/>New template</button>}><div className="terms-list">{terms.length ? terms.map((term) => <article key={term.id}><div><span>{term.isDefault ? "Default template" : "Reusable template"}</span><h3>{term.name}</h3><p>{term.body}</p></div><div className="term-actions">{!term.isDefault && <button className="text-link" disabled={busy === "term"} onClick={() => void setDefaultTerm(term)}>Make default</button>}<button className="secondary-button" onClick={() => setTermEditor(term)}>Edit</button><button className="plain-danger" disabled={busy === "term" || terms.length === 1 || term.isDefault} onClick={() => void deleteTerm(term)} aria-label={`Delete ${term.name}`}>Delete</button></div></article>) : <div className="empty-state"><FileText/><h3>No terms templates yet</h3><p>Add payment, cancellation, delivery and refund language for reuse.</p><button className="primary-button" onClick={() => setTermEditor("new")}>Create first template</button></div>}</div></SettingsSection>}
-      {tab === "team" && <SettingsSection eyebrow="Protected access" title="Team & permissions" note="Invite your sister or staff with their own account. Passwords are never shared or visible here." action={<button className="primary-button" onClick={() => setInviting(true)}><UserPlus size={15}/>Invite member</button>}><div className="role-key"><p><strong>Owner</strong><span>Full access, team and security</span></p><p><strong>Manager</strong><span>Operations, billing and reports</span></p><p><strong>Staff</strong><span>Daily work, restricted money controls</span></p></div><div className="team-list">{members.map((member) => <article key={member.id}><span className="member-avatar">{member.name.slice(0,2).toUpperCase()}</span><p><strong>{member.name}</strong><small>{member.email} · {member.lastActiveAt ? `Active ${date(member.lastActiveAt)}` : member.status}</small></p><span className={`member-role ${member.role}`}>{member.role}</span>{member.role !== "owner" && <div>{member.status === "invited" ? <small>Invitation pending</small> : <button onClick={() => void memberAction(member, member.status === "suspended" ? "restore" : "deactivate")} disabled={Boolean(busy)}>{member.status === "suspended" ? "Restore" : "Suspend"}</button>}</div>}</article>)}</div></SettingsSection>}
-      {tab === "security" && <SettingsSection eyebrow="Account confidence" title="Security & activity" note="Important access, billing and configuration changes are recorded here."><div className="security-note"><ShieldCheck size={27}/><div><strong>Separate accounts keep the studio safer.</strong><p>Owners manage security and team membership. Managers run operations. Staff access is limited to daily work.</p></div></div><div className="activity-list">{activity.length ? activity.map((entry,index) => <article key={entry.id || index}><Activity size={16}/><p><strong>{entry.action}</strong><small>{entry.actor || "Studio team"} · {entry.detail || "Important change"}</small></p><time>{date(entry.createdAt)}</time></article>) : <div className="empty-state"><Activity/><h3>No important changes yet</h3><p>Account and settings activity will appear here.</p></div>}</div></SettingsSection>}
-    </>}</main></div>{termEditor && <TermTemplateEditor term={termEditor} busy={busy === "term"} close={() => setTermEditor(null)} saved={(term) => void saveTerm(term)}/>} {inviting && <InviteEditor close={() => setInviting(false)} saved={() => { setInviting(false); setNotice("Invitation sent. Your teammate will create their own password."); void load(); }}/>} {notice && <Toast message={notice} onClose={() => setNotice("")}/>}</div></AppShell>;
+const roles = [
+  { value: "owner", label: "Owner — everything" },
+  { value: "manager", label: "Manager — orders, partners & money" },
+  { value: "staff", label: "Staff — orders & partners, no money" },
+];
+
+export default async function SettingsPage() {
+  const user = await requireUser("settings");
+  const [settings, terms, users] = await Promise.all([getSettings(), listTerms(), listUsers()]);
+  const storage = isStorageConfigured();
+  const logoUrl = settings.logo_key ? await viewUrl(settings.logo_key) : null;
+  const pad = (n: number) => String(n).padStart(settings.number_padding, "0");
+
+  return (
+    <AppShell permission="settings">
+      <PageHeader eyebrow="Settings" title="Studio settings" description="Changes apply to new documents. Issued invoices keep the details they were issued with." />
+      <nav className="tabs">
+        <a href="#business">Business</a><a href="#invoices">Invoices</a><a href="#terms">Terms</a><a href="#split">Profit split</a><a href="#team">Team</a>
+      </nav>
+
+      <div className="stack">
+        <section className="card" id="business">
+          <h2>Business details</h2>
+          <div className="grid sidebar-right">
+            <ActionForm action={saveBusiness} resetOnSuccess={false}>
+              <div className="form-grid">
+                <Field label="Business name" name="business_name" required defaultValue={settings.business_name} />
+                <Field label="Tagline" name="tagline" defaultValue={settings.tagline} />
+                <Field label="Phone / WhatsApp" name="phone" defaultValue={settings.phone} />
+                <Field label="Email" name="email" type="email" defaultValue={settings.email} />
+                <Field label="Website / Facebook page" name="website" defaultValue={settings.website} />
+                <Field label="Currency" name="currency" defaultValue={settings.currency} maxLength={3} />
+                <TextArea label="Address" name="address" className="full" rows={2} defaultValue={settings.address} />
+              </div>
+              <Submit>Save details</Submit>
+            </ActionForm>
+            <div className="stack">
+              <h3>Logo</h3>
+              {logoUrl ? <img src={logoUrl} alt="Current logo" style={{ maxHeight: 90, maxWidth: 220, objectFit: "contain", background: "#fff", padding: 8, borderRadius: 6, border: "1px solid var(--line)" }} /> : <p className="muted">No logo yet.</p>}
+              {storage ? (
+                <ActionForm action={uploadLogo}>
+                  <label className="field"><span>Upload logo</span><input type="file" name="logo" accept="image/png,image/jpeg,image/webp" required /><small>PNG with a transparent background looks best. Max 4 MB.</small></label>
+                  <Submit>Upload</Submit>
+                </ActionForm>
+              ) : <p className="notice warn">File storage isn&apos;t configured, so logos can&apos;t be uploaded yet.</p>}
+              {settings.logo_key && <ActionButton action={removeLogo} className="btn small ghost" confirm="Remove the logo from new documents?">Remove logo</ActionButton>}
+            </div>
+          </div>
+        </section>
+
+        <section className="card" id="invoices">
+          <h2>Invoices & payments</h2>
+          <ActionForm action={saveInvoiceSettings} resetOnSuccess={false}>
+            <div className="form-grid three">
+              <Field label="Invoice prefix" name="invoice_prefix" required defaultValue={settings.invoice_prefix} hint={`Next: ${settings.invoice_prefix}-${pad(settings.next_invoice_number)}`} />
+              <Field label="Receipt prefix" name="receipt_prefix" required defaultValue={settings.receipt_prefix} hint={`Next: ${settings.receipt_prefix}-${pad(settings.next_receipt_number)}`} />
+              <Field label="Quote prefix" name="quote_prefix" required defaultValue={settings.quote_prefix} hint={`Next: ${settings.quote_prefix}-${pad(settings.next_quote_number)}`} />
+              <Field label="Number digits" name="number_padding" type="number" min="3" max="8" defaultValue={settings.number_padding} />
+              <Field label="Days to pay" name="default_due_days" type="number" min="0" max="90" defaultValue={settings.default_due_days} />
+              <Field label="Default advance %" name="default_advance_percent" type="number" min="0" max="100" step="0.5" defaultValue={settings.default_advance_percent} />
+            </div>
+            <div className="form-grid">
+              <TextArea label="Bank details (shown on invoices)" name="bank_details" rows={4} defaultValue={settings.bank_details} placeholder={"Bank: Commercial Bank\nAccount name: …\nAccount no: …\nBranch: …"} />
+              <TextArea label="Payment instructions" name="payment_instructions" rows={4} defaultValue={settings.payment_instructions} placeholder="Please send the payment slip on WhatsApp after transferring." />
+              <Field label="Footer message" name="invoice_footer" className="full" defaultValue={settings.invoice_footer} />
+            </div>
+            <Submit>Save invoice settings</Submit>
+          </ActionForm>
+        </section>
+
+        <section className="card" id="terms">
+          <h2>Terms & conditions</h2>
+          <p className="muted" style={{ marginBottom: 12 }}>Terms marked “default” are ticked on new invoices. You can tick or untick them on each draft before issuing.</p>
+          <div className="stack">
+            {terms.map((term) => (
+              <details key={term.id} className="panel">
+                <summary style={{ color: "var(--ink)" }}>{term.title} {term.is_default && <Badge tone="sage">Default</Badge>} {!term.active && <Badge>Hidden</Badge>}</summary>
+                <div className="panel-body">
+                  <ActionForm action={saveTerm} resetOnSuccess={false}>
+                    <input type="hidden" name="term_id" value={term.id} />
+                    <div className="form-grid">
+                      <Field label="Title" name="title" required defaultValue={term.title} />
+                      <Field label="Order" name="sort_order" type="number" min="0" defaultValue={term.sort_order} />
+                      <TextArea label="Text" name="body" required className="full" defaultValue={term.body} />
+                      <label className="check"><input type="checkbox" name="is_default" defaultChecked={term.is_default} />Tick on new documents</label>
+                      <label className="check"><input type="checkbox" name="active" defaultChecked={term.active} />Available to use</label>
+                    </div>
+                    <div className="row"><Submit>Save term</Submit></div>
+                  </ActionForm>
+                  <div style={{ marginTop: 8 }}><ActionButton action={deleteTerm} fields={{ term_id: term.id }} className="btn small ghost" confirm="Delete this term?">Delete</ActionButton></div>
+                </div>
+              </details>
+            ))}
+            <details className="panel">
+              <summary>Add a term</summary>
+              <div className="panel-body">
+                <ActionForm action={saveTerm}>
+                  <div className="form-grid">
+                    <Field label="Title" name="title" required placeholder="e.g. Photos" />
+                    <Field label="Order" name="sort_order" type="number" min="0" defaultValue={terms.length + 1} />
+                    <TextArea label="Text" name="body" required className="full" />
+                    <label className="check"><input type="checkbox" name="is_default" defaultChecked />Tick on new documents</label>
+                  </div>
+                  <Submit>Add term</Submit>
+                </ActionForm>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section className="card" id="split">
+          <h2>Profit split</h2>
+          <p className="muted" style={{ marginBottom: 12 }}>How net profit is shared each month. When you close a month in Reports, its split is saved, so changing this later won&apos;t rewrite old months.</p>
+          <ActionForm action={saveSplit} resetOnSuccess={false}>
+            <div className="form-grid three">
+              <Field label="First person" name="split_owner_label" required defaultValue={settings.split_owner_label} />
+              <Field label="Their share %" name="split_owner_percent" type="number" min="0" max="100" step="0.5" required defaultValue={settings.split_owner_percent} />
+              <Field label="Second person" name="split_partner_label" required defaultValue={settings.split_partner_label} hint="Gets the rest." />
+            </div>
+            <Submit>Save split</Submit>
+          </ActionForm>
+        </section>
+
+        <section className="card" id="team">
+          <h2>Team</h2>
+          <div className="stack">
+            {users.map((member) => (
+              <details key={member.id} className="panel">
+                <summary style={{ color: "var(--ink)" }}>
+                  {member.name} <small style={{ fontWeight: 500 }}>· {member.email}</small> <Badge tone={member.active ? "sage" : "ribbon"}>{member.active ? member.role : "Disabled"}</Badge>
+                  {member.id === user.id && <Badge>You</Badge>}
+                </summary>
+                <div className="panel-body">
+                  <p className="muted" style={{ marginBottom: 10, fontSize: 13 }}>Last sign-in: {member.last_login_at ? formatDateTime(member.last_login_at) : "never"}</p>
+                  <ActionForm action={updateUser} resetOnSuccess={false}>
+                    <input type="hidden" name="user_id" value={member.id} />
+                    <div className="form-grid">
+                      <Select label="Role" name="role" options={roles} defaultValue={member.role} />
+                      <Field label="Set a new password" name="new_password" type="password" autoComplete="new-password" hint="Leave empty to keep. They'll be signed out." />
+                      <label className="check"><input type="checkbox" name="active" defaultChecked={member.active} />Can sign in</label>
+                    </div>
+                    <Submit>Update</Submit>
+                  </ActionForm>
+                </div>
+              </details>
+            ))}
+            <details className="panel">
+              <summary>Add a team member</summary>
+              <div className="panel-body">
+                <ActionForm action={addUser}>
+                  <div className="form-grid">
+                    <Field label="Name" name="name" required />
+                    <Field label="Email" name="email" type="email" required />
+                    <Select label="Role" name="role" options={roles} defaultValue="manager" />
+                    <Field label="Temporary password" name="password" type="text" required minLength={10} autoComplete="off" hint="Share it privately. They should change it after signing in." />
+                  </div>
+                  <Submit>Create account</Submit>
+                </ActionForm>
+              </div>
+            </details>
+          </div>
+        </section>
+      </div>
+    </AppShell>
+  );
 }
-
-function SettingsSection({ eyebrow, title, note, action, children }: { eyebrow: string; title: string; note: string; action?: React.ReactNode; children: React.ReactNode }) { return <section className="settings-section"><header><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2><p>{note}</p></div>{action}</header>{children}</section>; }
-function Field({ label, value, set, type="text" }: { label: string; value: string; set: (value:string)=>void; type?: string }) { return <label>{label}<input type={type} value={value} onChange={(event) => set(event.target.value)}/></label>; }
-function NumberField({ label, value, set, disabled=false }: { label:string; value:number; set:(value:number)=>void; disabled?:boolean }) { return <label>{label}<input type="number" min="0" disabled={disabled} value={value} onChange={(event) => set(Number(event.target.value))}/></label>; }
-function TermTemplateEditor({term,busy,close,saved}:{term:Term|"new";busy:boolean;close:()=>void;saved:(term:Term)=>void}){const existing=term==="new"?null:term;const[name,setName]=useState(existing?.name||"");const[body,setBody]=useState(existing?.body||"");const[isDefault,setDefault]=useState(Boolean(existing?.isDefault));return <AccessibleDialog labelId="term-template-title" className="partner-editor" onClose={close}><form onSubmit={(event)=>{event.preventDefault();saved({id:existing?.id||crypto.randomUUID(),name:name.trim(),body:body.trim(),isDefault})}}><header><div><small>Reusable document language</small><h2 id="term-template-title">{existing?"Edit terms template":"New terms template"}</h2></div><button type="button" onClick={close}><X/></button></header><div className="partner-editor-fields"><label>Template name<input required maxLength={160} value={name} onChange={(event)=>setName(event.target.value)}/></label><label>Terms & conditions<textarea required rows={11} maxLength={10000} value={body} onChange={(event)=>setBody(event.target.value)}/><small>Use plain language for advances, cancellations, delivery changes and refunds.</small></label><label className="send-choice"><span><input type="checkbox" checked={isDefault} onChange={(event)=>setDefault(event.target.checked)}/><strong>Use for new documents by default</strong></span></label></div><footer><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={busy||!name.trim()||!body.trim()}><Save size={15}/>Save template</button></footer></form></AccessibleDialog>}
-function InviteEditor({ close,saved }: {close:()=>void;saved:()=>void}){const [form,setForm]=useState({name:"",email:"",role:"manager"});const[busy,setBusy]=useState(false);const[error,setError]=useState("");async function submit(event:React.FormEvent){event.preventDefault();setBusy(true);setError("");try{const response=await fetch("/api/settings/team",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({displayName:form.name,email:form.email,role:form.role})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||"The invitation could not be sent.");saved();}catch(caught){setError(caught instanceof Error?caught.message:"The invitation could not be sent.");}finally{setBusy(false);}}return <AccessibleDialog labelId="invite-title" className="partner-editor" onClose={close}><form onSubmit={(event)=>void submit(event)}><header><div><small>Individual protected access</small><h2 id="invite-title">Invite a teammate</h2></div><button type="button" onClick={close}><X/></button></header><div className="partner-editor-fields">{error&&<div className="inline-action-error">{error}</div>}<label>Name<input required value={form.name} onChange={(event)=>setForm({...form,name:event.target.value})}/></label><label>Email<input required type="email" value={form.email} onChange={(event)=>setForm({...form,email:event.target.value})}/></label><label>Role<select value={form.role} onChange={(event)=>setForm({...form,role:event.target.value})}><option value="manager">Manager</option><option value="staff">Staff</option></select><small>An invitation is sent by email. We never ask you to create or share their password.</small></label></div><footer><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={busy}>{busy?<LoaderCircle className="spin" size={15}/>:<UserPlus size={15}/>}Send invitation</button></footer></form></AccessibleDialog>}
-function date(value:string){const parsed=new Date(value);return Number.isNaN(parsed.valueOf())?value:new Intl.DateTimeFormat("en-LK",{day:"2-digit",month:"short",year:"numeric"}).format(parsed)}
-function parseTerms(value:unknown,fallback:string):Term[]{if(typeof value==="string"&&value){try{const parsed=JSON.parse(value);if(Array.isArray(parsed))return parsed.filter((entry)=>entry&&typeof entry.id==="string"&&typeof entry.name==="string"&&typeof entry.body==="string")}catch{}}return fallback?[{id:"default",name:"Standard customer terms",body:fallback,isDefault:true}]:[]}
-function invoicePayload(settings:Settings,terms:Term[]){return{numberPrefix:settings.documentPrefix,numberPadding:settings.numberPadding,defaultDueDays:settings.defaultDueDays,defaultTerms:settings.defaultTerms,paymentInstructions:settings.bankInstructions,bankDetails:{signature:settings.signatureText,logoUrl:settings.logoUrl,taxEnabled:String(settings.taxEnabled),taxPercent:String(settings.taxPercent),termTemplates:JSON.stringify(terms),defaultTermsId:settings.defaultTermsId},defaultDepositPercent:settings.defaultDepositPercent,footerText:settings.footer}}

@@ -1,27 +1,136 @@
-"use client";
-
-import { useCallback, useEffect, useState } from "react";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { MessageCircle, Plus, Search } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { AccessibleDialog } from "@/components/accessible-dialog";
-import { formatLkr } from "@/lib/demo-data";
-import type { Partner } from "@/lib/types";
-import { AlertCircle, ArrowUpRight, LoaderCircle, MapPin, Plus, RefreshCw, Star, WalletCards, X } from "lucide-react";
+import { Badge, Empty, Money, PageHeader, Stat } from "@/components/bits";
+import { SriLankaMap, type MapMarker } from "@/components/sri-lanka-map";
+import { can, requireUser } from "@/lib/auth";
+import { CITIES, findCity } from "@/lib/cities";
+import { SERVICES } from "@/lib/constants";
+import { findPartners, listPartners, type PartnerRow } from "@/lib/data/partners";
+import { formatDate } from "@/lib/format";
+import { whatsappLink } from "@/lib/whatsapp";
 
-export default function PartnersPage() {
-  const [partners, setPartners] = useState<Partner[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [adding, setAdding] = useState(false);
-  const load = useCallback(async () => { setLoading(true); try { const response = await fetch("/api/partners", { cache: "no-store" }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "Partner circle could not be loaded."); setPartners(payload.partners || []); setError(""); } catch (caught) { setError(caught instanceof Error ? caught.message : "Partner circle could not be loaded."); } finally { setLoading(false); } }, []);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
-  return <AppShell><div className="page partners-page"><header className="page-header"><div><span className="eyebrow">Trusted hands</span><h1>Our partner circle.</h1><p>Who can help, where they work, and what is still owed—all from live studio records.</p></div><button className="primary-button" onClick={() => setAdding(true)}><Plus size={18} />Add partner</button></header>
-    {notice && <div className="operational-notice success" role="status"><span>{notice}</span><button onClick={() => setNotice("")}><X size={14} /></button></div>}
-    {error && <div className="operational-notice error" role="alert"><AlertCircle size={18} /><span>{error}</span><button onClick={() => void load()}><RefreshCw size={14} />Try again</button></div>}
-    <div className="section-title"><h2>Partner directory</h2><span className="attention-count">{partners.length} active partners</span></div>
-    {loading ? <section className="directory-loading"><LoaderCircle className="spin" />Opening the partner ledger…</section> : partners.length ? <section className="partner-directory">{partners.map((partner, index) => <article key={partner.id}><div className="partner-tag"><span>{partner.name.split(" ").map((word) => word[0]).join("").slice(0, 3)}</span><i>{String(index + 1).padStart(2, "0")}</i></div><h2>{partner.name}</h2><p className="partner-location"><MapPin size={14} />{partner.location || "Service area not set"}</p><div className="service-tags">{partner.services.length ? partner.services.map((service) => <span key={service}>{service}</span>) : <span>Services need adding</span>}</div><dl><div><dt><Star size={14} />Reliability</dt><dd>{partner.reliability}%</dd></div><div><dt>Open orders</dt><dd>{partner.openOrders}</dd></div><div><dt><WalletCards size={14} />Balance due</dt><dd>{formatLkr(partner.balance)}</dd></div></dl><div className="partner-response"><small>Latest</small><strong>{partner.response || "No recent activity"}</strong></div><footer><span>Live partner record</span><ArrowUpRight size={17} /></footer></article>)}</section> : !error && <div className="empty-state"><Plus size={26} /><h3>Build your trusted circle</h3><p>Add the first cake maker, florist or delivery partner to assign them to celebrations.</p><button className="primary-button" onClick={() => setAdding(true)}>Add first partner</button></div>}
-    {adding && <PartnerForm close={() => setAdding(false)} saved={(message) => { setAdding(false); setNotice(message); void load(); }} />}
-  </div></AppShell>;
+export const metadata: Metadata = { title: "Partners" };
+
+export default async function PartnersPage({ searchParams }: { searchParams: Promise<{ city?: string; date?: string; service?: string; archived?: string }> }) {
+  const params = await searchParams;
+  const user = await requireUser();
+  const finance = can(user, "finance");
+  const [partners, matches] = await Promise.all([
+    listPartners({ includeInactive: params.archived === "1" }),
+    params.city ? findPartners(params.city, { date: params.date || null, service: params.service || null }) : Promise.resolve(null),
+  ]);
+  const active = partners.filter((partner) => partner.active);
+  const owed = active.reduce((sum, partner) => sum + Math.max(partner.balance, 0), 0);
+  const advanced = active.reduce((sum, partner) => sum + Math.max(-partner.balance, 0), 0);
+
+  return (
+    <AppShell>
+      <PageHeader
+        eyebrow="Partners"
+        title="Cake makers & helpers"
+        description="Find who can deliver where, see what you owe them, and track advances."
+        actions={<Link className="btn primary" href="/partners/new"><Plus size={16} />Add partner</Link>}
+      />
+
+      <section className="card" style={{ marginBottom: 22 }}>
+        <h2 style={{ marginBottom: 12 }}>Find a partner for a new order</h2>
+        <datalist id="city-list">{CITIES.map((city) => <option key={city.name} value={city.name}>{city.district}</option>)}</datalist>
+        <form className="filters" action="/partners" style={{ marginBottom: 0 }}>
+          <label className="field grow"><span>Delivery town</span><input name="city" list="city-list" defaultValue={params.city} placeholder="e.g. Kurunegala" required autoComplete="off" /></label>
+          <label className="field"><span>Delivery date</span><input name="date" type="date" defaultValue={params.date} /></label>
+          <label className="field"><span>Service</span>
+            <select name="service" defaultValue={params.service ?? ""}>
+              <option value="">Any</option>
+              {SERVICES.map((service) => <option key={service}>{service}</option>)}
+            </select>
+          </label>
+          <button className="btn primary" type="submit"><Search size={15} />Search</button>
+        </form>
+        {matches && (
+          <div style={{ marginTop: 16 }}>
+            {!findCity(params.city) && <p className="notice warn" style={{ marginBottom: 10 }}>“{params.city}” isn&apos;t in the town list, so only exact matches are shown. Pick a town from the suggestions for distance search.</p>}
+            {matches.length === 0 ? (
+              <Empty title={`No partners near ${params.city}`}><p>Add one, or widen a nearby partner&apos;s delivery distance.</p></Empty>
+            ) : matches.map((partner) => (
+              <div key={partner.id} className="match">
+                <div>
+                  <h3><Link href={`/partners/${partner.id}`} className="row-link">{partner.name}</Link> <small style={{ display: "inline" }}>· {partner.city}</small></h3>
+                  <p className="meta">
+                    {partner.reason}{partner.covers && partner.distanceKm ? ` · ${Math.round(partner.distanceKm)} km away` : ""} · {partner.services.join(", ") || "No services listed"}
+                    {partner.rating ? ` · ${"★".repeat(partner.rating)}` : ""}
+                  </p>
+                  <p className="meta">
+                    {params.date ? (partner.jobsThatDay ? `⚠ ${partner.jobsThatDay} job(s) already on ${formatDate(params.date)}` : `Free on ${formatDate(params.date)}`) : `${partner.open_jobs} open job(s)`}
+                    {finance && partner.balance !== 0 && ` · ${partner.balance > 0 ? "We owe" : "Advance with them"} ${Math.abs(partner.balance).toLocaleString("en-LK")}`}
+                  </p>
+                </div>
+                <div className="stack" style={{ gap: 6, justifyItems: "end" }}>
+                  {partner.covers ? <Badge tone="sage">Covers</Badge> : <Badge>Nearby</Badge>}
+                  {partner.phone && <a className="btn small whatsapp" target="_blank" rel="noreferrer" href={whatsappLink(partner.phone, `Hi ${partner.name}, are you available for a cake order in ${params.city}${params.date ? ` on ${formatDate(params.date)}` : ""}?`)}><MessageCircle size={14} />Ask</a>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <div className="stats">
+        <Stat label="Active partners" value={active.length} note={`${new Set(active.map((partner) => partner.city.toLowerCase())).size} towns`} />
+        <Stat label="Open jobs" value={active.reduce((sum, partner) => sum + partner.open_jobs, 0)} />
+        {finance && <Stat label="We owe partners" value={<Money value={owed} />} tone={owed > 0 ? "warn" : undefined} />}
+        {finance && <Stat label="Advances with partners" value={<Money value={advanced} />} note="Paid ahead of finished work" />}
+      </div>
+
+      <section className="card" style={{ marginBottom: 22 }}>
+        <div className="card-head"><h2>Partner coverage</h2><small>Circle size = number of partners in that town</small></div>
+        <SriLankaMap markers={partnerMarkers(active)} />
+      </section>
+
+      <div className="spread" style={{ marginBottom: 10 }}>
+        <h2>All partners</h2>
+        <Link className="link" href={params.archived === "1" ? "/partners" : "/partners?archived=1"}>{params.archived === "1" ? "Hide archived" : "Show archived"}</Link>
+      </div>
+      {partners.length === 0 ? (
+        <Empty title="No partners yet"><p>Add the cake makers you work with, with the town they&apos;re based in.</p></Empty>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Partner</th><th>Town</th><th>Services</th><th className="right">Open jobs</th><th className="right">Done</th>{finance && <th className="right">Balance</th>}</tr></thead>
+            <tbody>
+              {partners.map((partner) => (
+                <tr key={partner.id} className="clickable">
+                  <td><Link className="row-link" href={`/partners/${partner.id}`}>{partner.name}</Link>{!partner.active && <> <Badge>Archived</Badge></>}<small>{partner.phone}</small></td>
+                  <td>{partner.city}<small>{partner.service_radius_km} km{partner.extra_cities.length ? ` + ${partner.extra_cities.length} towns` : ""}</small></td>
+                  <td><div className="chips">{partner.services.map((service) => <span className="chip" key={service}>{service}</span>)}</div></td>
+                  <td className="right num">{partner.open_jobs}</td>
+                  <td className="right num">{partner.done_jobs}</td>
+                  {finance && <td className="right">{partner.balance > 0 ? <><Money value={partner.balance} /><small>we owe</small></> : partner.balance < 0 ? <><Money value={-partner.balance} /><small>advance</small></> : <small>Settled</small>}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </AppShell>
+  );
 }
 
-function PartnerForm({ close, saved }: { close: () => void; saved: (message: string) => void }) {
-  const [form, setForm] = useState({ name: "", location: "", services: "", phone: "" }); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
-  async function submit(event: React.FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { const response = await fetch("/api/partners", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.name, phone: form.phone || null, address: null, services: form.services.split(",").map((value) => value.trim()).filter(Boolean), serviceAreas: [form.location], reliability: 100 }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "Partner could not be added."); saved(`${form.name} was added to the partner circle.`); } catch (caught) { setError(caught instanceof Error ? caught.message : "Partner could not be added."); } finally { setBusy(false); } }
-  return <AccessibleDialog labelId="partner-editor-title" className="partner-editor" onClose={close}><form onSubmit={(event) => void submit(event)}><header><div><small>Trusted hands</small><h2 id="partner-editor-title">Add a partner</h2></div><button type="button" onClick={close} aria-label="Close editor"><X /></button></header>{error && <div className="operational-notice error"><AlertCircle size={17} />{error}</div>}<div className="partner-editor-fields"><label>Partner name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>Service area<input required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Colombo, Kandy…" /></label><label>WhatsApp phone<input type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label><label>Services<input value={form.services} onChange={(event) => setForm({ ...form, services: event.target.value })} placeholder="Cake, flowers, delivery" /></label></div><footer><button type="button" className="secondary-button" onClick={close}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}{busy ? "Adding…" : "Add partner"}</button></footer></form></AccessibleDialog>;
+function partnerMarkers(partners: PartnerRow[]): MapMarker[] {
+  const byCity = new Map<string, PartnerRow[]>();
+  for (const partner of partners) {
+    const city = findCity(partner.city);
+    if (!city) continue;
+    byCity.set(city.name, [...(byCity.get(city.name) ?? []), partner]);
+  }
+  return [...byCity.entries()].map(([name, list]) => {
+    const city = findCity(name)!;
+    return {
+      lat: city.lat, lng: city.lng, weight: list.length, color: "#382032",
+      title: `${name} · ${list.length} partner${list.length === 1 ? "" : "s"}`,
+      lines: list.map((partner) => `${partner.name}${partner.services.length ? ` — ${partner.services.join(", ")}` : ""}`),
+      href: `/partners?city=${encodeURIComponent(name)}`,
+    };
+  });
 }

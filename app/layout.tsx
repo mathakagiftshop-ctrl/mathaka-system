@@ -6,8 +6,9 @@ const sans = DM_Sans({ subsets: ["latin"], variable: "--font-sans", display: "sw
 const serif = Fraunces({ subsets: ["latin"], variable: "--font-serif", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Mathaka Celebration Studio",
-  description: "From a message to a memory.",
+  title: { default: "Mathaka Celebration Studio", template: "%s · Mathaka" },
+  description: "Orders, partners, invoices and money for Mathaka.",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

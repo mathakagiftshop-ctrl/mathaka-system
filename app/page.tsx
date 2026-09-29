@@ -1,40 +1,89 @@
-"use client";
-
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { OrderCard } from "@/components/ui";
-import { useOrders } from "@/lib/use-orders";
-import { ArrowRight, CircleDollarSign, Film, Plus, ReceiptText, Sparkles, Store } from "lucide-react";
+import { Empty, Money, Stat, StatusBadge } from "@/components/bits";
+import { can, requireUser } from "@/lib/auth";
+import { dashboardSummary, listOrders } from "@/lib/data/orders";
+import { addDays, currentMonth, formatDate, monthLabel, relativeDay, today } from "@/lib/format";
 
-export default function TodayPage() {
-  const { orders, source } = useOrders();
-  const now = new Date(); const inTwoDays = now.getTime() + 2 * 86_400_000;
-  const deliveries = orders.filter((order) => order.date && new Date(order.date).getTime() >= now.setHours(0,0,0,0) && new Date(order.date).getTime() <= inTwoDays).length;
-  const openTasks = orders.flatMap((order) => order.tasks).filter((task) => !task.complete).length;
-  const onSchedule = orders.length ? Math.round(orders.filter((order) => order.attention !== "urgent").length / orders.length * 100) : 100;
-  const profit = orders.reduce((sum, order) => sum + order.estimatedProfit, 0);
-  const attention = orders.filter((order) => order.attention !== "clear").slice(0, 5).map((order) => ({ icon: order.videos < order.requiredVideos ? Film : order.currencyNote.includes("remaining") ? ReceiptText : Store, label: order.nextAction, note: `${order.recipient} · ${order.countdown}`, tone: order.attention === "urgent" ? "raspberry" : "gold", href: `/celebrations/${order.id}` }));
-  const today = new Intl.DateTimeFormat("en-LK", { weekday: "long", day: "numeric", month: "long" }).format(new Date());
-  return <AppShell><div className="page today-page">
-    <header className="page-header">
-      <div><span className="eyebrow">{today} · {source === "supabase" ? "Live studio" : source === "loading" ? "Syncing celebrations" : "Connection needs attention"}</span><h1>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, Sachin.</h1><p>{attention.length ? `${attention.length} celebrations need your touch.` : "Every celebration is moving beautifully."}</p></div>
-      <div className="detail-actions"><Link className="secondary-button" href="/billing"><ReceiptText size={17}/>Billing desk</Link><Link className="primary-button" href="/celebrations/new"><Plus size={18}/>New celebration</Link></div>
-    </header>
-    <section className="today-ribbon" aria-label="Today summary">
-      <div className="ribbon-lead"><Sparkles size={21}/><span><strong>Today at a glance</strong><small>Your studio is in good shape.</small></span></div>
-      <div><strong>{deliveries}</strong><span>deliveries<br/><small>next 48 hours</small></span></div>
-      <div><strong>{openTasks}</strong><span>open tasks<br/><small>across live journeys</small></span></div>
-      <div><strong>{onSchedule}%</strong><span>on schedule<br/><small>across all celebrations</small></span></div>
-      <div><CircleDollarSign size={22}/><span>LKR {profit.toLocaleString("en-LK")}<br/><small>estimated profit</small></span></div>
-    </section>
-    <div className="studio-columns">
-      <section>
-        <div className="section-title"><h2>Needs your touch</h2><span className="attention-count">3 little nudges</span></div>
-        <div className="attention-list">{attention.length ? attention.map(({ icon:Icon, label, note, tone, href }, index)=><Link href={href} key={href} className="attention-row"><span className={`attention-icon ${tone}`}><Icon size={19}/></span><span className="attention-number">{String(index+1).padStart(2,"0")}</span><p><strong>{label}</strong><small>{note}</small></p><ArrowRight size={18}/></Link>) : <p className="panel-empty">Nothing needs immediate attention.</p>}</div>
-      </section>
-      <aside className="daily-note"><div className="pin"/><span className="eyebrow">Studio note</span><blockquote>“A celebration feels effortless to the customer because we remember every tiny thing.”</blockquote><p>— Mathaka way of working</p><div className="tape"/></aside>
-    </div>
-    <div className="section-title"><h2>Upcoming celebrations</h2><Link href="/celebrations">See all celebrations →</Link></div>
-    <section className="order-grid">{orders.slice(0,3).map(order=><OrderCard key={order.id} order={order}/>)}</section>
-  </div></AppShell>;
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ denied?: string }> }) {
+  const { denied } = await searchParams;
+  const user = await requireUser();
+  const finance = can(user, "finance");
+  const month = currentMonth();
+  const [{ counts, money }, active] = await Promise.all([dashboardSummary(month), listOrders({ view: "active" })]);
+  const date = today();
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: "Asia/Colombo" }).format(new Date()));
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  const upcoming = active.filter((order) => order.status !== "delivered" && order.delivery_date && order.delivery_date <= addDays(date, 7));
+  const unpaid = active.filter((order) => order.balance > 0 && order.delivery_date && order.delivery_date <= addDays(date, 7));
+  const needsClosing = active.filter((order) => order.status === "delivered");
+  const noPartner = active.filter((order) => !order.partners?.length && order.status !== "delivered");
+
+  return (
+    <AppShell>
+      {denied && <p className="notice warn" style={{ marginBottom: 16 }}>You don&apos;t have access to that page.</p>}
+      <header className="page-header">
+        <div>
+          <span className="eyebrow">{formatDate(date, { weekday: "long", year: undefined })}</span>
+          <h1>{greeting}, {user.name.split(" ")[0]}.</h1>
+          <p>{counts.today ? `${counts.today} deliver${counts.today === 1 ? "y" : "ies"} today` : "No deliveries today"} · {counts.next7} in the next 7 days · {counts.enquiries} open enquir{counts.enquiries === 1 ? "y" : "ies"}</p>
+        </div>
+        <Link className="btn primary" href="/orders/new"><Plus size={16} />New order</Link>
+      </header>
+
+      <div className="stats">
+        <Stat label="Active orders" value={counts.active} tone="dark" note={counts.undated ? `${counts.undated} without a date` : undefined} />
+        {finance && <Stat label="Customers owe" value={<Money value={money.customer_owes} />} note={money.pending_verification ? `+ ${money.pending_verification.toLocaleString("en-LK")} to verify` : undefined} />}
+        {finance && <Stat label="We owe partners" value={<Money value={money.partners_owed} />} note={money.partner_advances ? `${money.partner_advances.toLocaleString("en-LK")} advanced` : undefined} />}
+        {finance && <Stat label={`${monthLabel(month)} commission`} value={<Money value={money.month_profit} />} note={`${money.month_orders} orders · before ads`} tone="good" />}
+      </div>
+
+      <div className="grid two">
+        <section className="card">
+          <div className="card-head"><h2>Next 7 days</h2><Link className="link" href="/orders">All orders →</Link></div>
+          {upcoming.length === 0 ? <Empty title="Nothing scheduled this week" /> : (
+            <div className="list">
+              {upcoming.map((order) => (
+                <Link key={order.id} href={`/orders/${order.id}`}>
+                  <div>
+                    <strong>{order.recipient_name} <small style={{ display: "inline" }}>· {order.occasion}</small></strong>
+                    <small>{relativeDay(order.delivery_date)} · {formatDate(order.delivery_date, { weekday: "short", year: undefined })} {order.delivery_time} · {order.city}{order.partners?.length ? ` · ${order.partners.join(", ")}` : ""}</small>
+                  </div>
+                  <StatusBadge status={order.status} />
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="card">
+          <h2>Needs your attention</h2>
+          <div className="list">
+            {noPartner.slice(0, 5).map((order) => (
+              <Link key={`p-${order.id}`} href={`/orders/${order.id}`}>
+                <div><strong>Find a partner</strong><small>{order.number} · {order.recipient_name} · {order.city} · {relativeDay(order.delivery_date)}</small></div>
+                <span className="badge gold">Partner</span>
+              </Link>
+            ))}
+            {finance && unpaid.slice(0, 5).map((order) => (
+              <Link key={`u-${order.id}`} href={`/orders/${order.id}`}>
+                <div><strong>Collect <Money value={order.balance} /></strong><small>{order.customer_name} · for {order.recipient_name} · {relativeDay(order.delivery_date)}</small></div>
+                <span className="badge ribbon">Balance</span>
+              </Link>
+            ))}
+            {needsClosing.slice(0, 5).map((order) => (
+              <Link key={`c-${order.id}`} href={`/orders/${order.id}`}>
+                <div><strong>Send photos & complete</strong><small>{order.number} · {order.recipient_name} was delivered</small></div>
+                <span className="badge sage">Delivered</span>
+              </Link>
+            ))}
+            {!noPartner.length && !(finance && unpaid.length) && !needsClosing.length && <p className="muted">All clear. 🎉</p>}
+          </div>
+        </section>
+      </div>
+    </AppShell>
+  );
 }
+
