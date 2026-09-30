@@ -65,11 +65,11 @@ export async function getOrder(id: string) {
   const sql = db();
   const [order] = await sql<(OrderRow & {
     customer_id: string; recipient_phone: string; delivery_address: string; special_request: string; internal_notes: string;
-    source: string; discount: number; delivery_fee: number; markup: number; items_subtotal: number; partner_paid: number; revenue: number;
+    source: string; discount: number; delivery_fee: number; markup: number; items_subtotal: number; partner_paid: number; revenue: number; stock_costs: number;
     customer_notes: string; created_at: Date; delivered_at: Date | null; completed_at: Date | null; gallery_token: string | null;
   })[]>`
     select o.*, c.name as customer_name, c.phone as customer_phone, c.country as customer_country, c.notes as customer_notes,
-      s.items_subtotal, s.total, s.paid, s.pending, s.balance, s.partner_costs, s.partner_paid, s.order_expenses, s.profit, s.revenue
+      s.items_subtotal, s.total, s.paid, s.pending, s.balance, s.partner_costs, s.partner_paid, s.order_expenses, s.profit, s.revenue, s.stock_costs
     from orders o join customers c on c.id = o.customer_id join order_summary s on s.order_id = o.id
     where o.id = ${id}
   `;

@@ -8,10 +8,10 @@ const firstOf = (month: string) => `${month}-01`;
 export async function monthReport(month: string) {
   const sql = db();
   const start = firstOf(month);
-  const [[orders], [expenses], [cash], [closed], byCategory, settings] = await Promise.all([
-    sql<{ revenue: number; partner_costs: number; order_expenses: number; orders: number; delivered: number; cancelled: number }[]>`
+  const [[orders], [expenses], [cash], [closed], byCategory, settings, [stock]] = await Promise.all([
+    sql<{ revenue: number; partner_costs: number; order_expenses: number; stock_costs: number; orders: number; delivered: number; cancelled: number }[]>`
       select coalesce(sum(s.revenue), 0) as revenue, coalesce(sum(s.partner_costs), 0) as partner_costs,
-        coalesce(sum(s.order_expenses), 0) as order_expenses,
+        coalesce(sum(s.order_expenses), 0) as order_expenses, coalesce(sum(s.stock_costs), 0) as stock_costs,
         count(*) filter (where o.status <> 'cancelled')::int as orders,
         count(*) filter (where o.status in ('delivered', 'completed'))::int as delivered,
         count(*) filter (where o.status = 'cancelled')::int as cancelled
@@ -21,21 +21,28 @@ export async function monthReport(month: string) {
       select coalesce(sum(amount) filter (where order_id is null), 0) as business_expenses,
         coalesce(sum(amount) filter (where category = 'meta_ads'), 0) as ad_spend
       from expenses where date_trunc('month', spent_on) = ${start}::date`,
-    sql<{ money_in: number; paid_partners: number; paid_expenses: number }[]>`
+    sql<{ money_in: number; paid_partners: number; paid_expenses: number; stock_bought: number }[]>`
       select
+        (select coalesce(sum(total_cost), 0) from stock_purchases where date_trunc('month', bought_on) = ${start}::date) as stock_bought,
         (select coalesce(sum(amount), 0) from customer_payments where status = 'verified' and date_trunc('month', received_on) = ${start}::date) as money_in,
         (select coalesce(sum(amount), 0) from partner_payments where voided_at is null and date_trunc('month', paid_on) = ${start}::date) as paid_partners,
         (select coalesce(sum(amount), 0) from expenses where date_trunc('month', spent_on) = ${start}::date) as paid_expenses`,
-    sql<{ owner_percent: number; owner_label: string; partner_label: string; owner_share: number; partner_share: number; net_profit: number; closed_at: Date; revenue: number; partner_costs: number; order_expenses: number; business_expenses: number }[]>`
+    sql<{ owner_percent: number; owner_label: string; partner_label: string; owner_share: number; partner_share: number; net_profit: number; closed_at: Date; revenue: number; partner_costs: number; order_expenses: number; business_expenses: number; stock_costs: number; stock_written_off: number }[]>`
       select * from month_closes where month = ${start}::date`,
     sql<{ category: string; amount: number }[]>`
       select category, sum(amount) as amount from expenses where date_trunc('month', spent_on) = ${start}::date group by category order by amount desc`,
     getSettings(),
+    sql<{ written_off: number; on_hand_value: number }[]>`
+      select
+        (select coalesce(sum(cost), 0) from stock_moves where kind = 'written_off' and date_trunc('month', moved_on) = ${start}::date) as written_off,
+        (select coalesce(sum(value), 0) from stock_levels) as on_hand_value`,
   ]);
 
   const figures = closed
-    ? { revenue: closed.revenue, partnerCosts: closed.partner_costs, orderExpenses: closed.order_expenses, businessExpenses: closed.business_expenses }
-    : { revenue: orders.revenue, partnerCosts: orders.partner_costs, orderExpenses: orders.order_expenses, businessExpenses: expenses.business_expenses };
+    ? { revenue: closed.revenue, partnerCosts: closed.partner_costs, orderExpenses: closed.order_expenses, businessExpenses: closed.business_expenses,
+        stockCosts: closed.stock_costs, stockWrittenOff: closed.stock_written_off }
+    : { revenue: orders.revenue, partnerCosts: orders.partner_costs, orderExpenses: orders.order_expenses, businessExpenses: expenses.business_expenses,
+        stockCosts: orders.stock_costs, stockWrittenOff: stock.written_off };
   const netProfit = closed ? closed.net_profit : monthNetProfit(figures);
   const ownerPercent = closed ? closed.owner_percent : settings.split_owner_percent;
   const split = closed ? { owner: closed.owner_share, partner: closed.partner_share } : splitProfit(netProfit, ownerPercent);
@@ -44,7 +51,7 @@ export async function monthReport(month: string) {
     month,
     figures,
     netProfit,
-    commission: figures.revenue - figures.partnerCosts - figures.orderExpenses,
+    commission: figures.revenue - figures.partnerCosts - figures.orderExpenses - figures.stockCosts,
     split: {
       ...split,
       ownerPercent,
@@ -57,7 +64,8 @@ export async function monthReport(month: string) {
     cancelled: orders.cancelled,
     adSpend: expenses.ad_spend,
     costPerOrder: costPerOrder(expenses.ad_spend, orders.orders),
-    cash: { in: cash.money_in, out: cash.paid_partners + cash.paid_expenses, paidPartners: cash.paid_partners, paidExpenses: cash.paid_expenses },
+    cash: { in: cash.money_in, out: cash.paid_partners + cash.paid_expenses + cash.stock_bought, paidPartners: cash.paid_partners, paidExpenses: cash.paid_expenses, stockBought: cash.stock_bought },
+    stockOnHand: stock.on_hand_value,
     byCategory,
   };
 }
@@ -70,7 +78,7 @@ export async function monthlyTrend(months = 12) {
     )
     select to_char(m.month, 'YYYY-MM') as month,
       coalesce(o.revenue, 0) as revenue, coalesce(o.commission, 0) as commission,
-      coalesce(e.business_expenses, 0) as business_expenses, coalesce(e.ad_spend, 0) as ad_spend, coalesce(o.orders, 0) as orders
+      coalesce(e.business_expenses, 0) + coalesce(w.written_off, 0) as business_expenses, coalesce(e.ad_spend, 0) as ad_spend, coalesce(o.orders, 0) as orders
     from m
     left join (
       select s.month, sum(s.revenue) as revenue, sum(s.profit) as commission, count(*) filter (where o.status <> 'cancelled')::int as orders
@@ -81,6 +89,10 @@ export async function monthlyTrend(months = 12) {
         sum(amount) filter (where category = 'meta_ads') as ad_spend
       from expenses group by 1
     ) e on e.month = m.month
+    left join (
+      select date_trunc('month', moved_on)::date as month, sum(cost) as written_off
+      from stock_moves where kind = 'written_off' group by 1
+    ) w on w.month = m.month
     order by m.month
   `;
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BarChart3, CalendarHeart, FileText, Home, Menu, Receipt, Settings, Store, Users, X } from "lucide-react";
+import { BarChart3, CalendarHeart, FileText, Home, Menu, Package, Receipt, Settings, Store, Users, X } from "lucide-react";
 
 const links = [
   { href: "/", label: "Today", icon: Home },
@@ -12,6 +12,7 @@ const links = [
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/invoices", label: "Invoices", icon: FileText, finance: true },
   { href: "/expenses", label: "Expenses", icon: Receipt, finance: true },
+  { href: "/stock", label: "Stock", icon: Package, finance: true },
   { href: "/reports", label: "Reports & map", icon: BarChart3, finance: true },
   { href: "/settings", label: "Settings", icon: Settings, settings: true },
 ];

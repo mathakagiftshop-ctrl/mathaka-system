@@ -15,7 +15,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : currentMonth();
   const category = EXPENSE_CATEGORIES.some((item) => item.value === params.category) ? params.category! : null;
   const sql = db();
-  const [expenses, totals] = await Promise.all([
+  const [expenses, totals, [stock]] = await Promise.all([
     sql<{ id: string; spent_on: string; category: string; description: string; amount: number; order_id: string | null; order_number: string | null }[]>`
       select e.id, e.spent_on, e.category, e.description, e.amount, e.order_id, o.number as order_number
       from expenses e left join orders o on o.id = e.order_id
@@ -23,13 +23,15 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       order by e.spent_on desc, e.created_at desc`,
     sql<{ category: string; amount: number }[]>`
       select category, sum(amount) as amount from expenses where date_trunc('month', spent_on) = ${`${month}-01`}::date group by category`,
+    sql<{ bought: number }[]>`
+      select coalesce(sum(total_cost), 0) as bought from stock_purchases where date_trunc('month', bought_on) = ${`${month}-01`}::date`,
   ]);
   const total = totals.reduce((sum, row) => sum + row.amount, 0);
   const ads = totals.find((row) => row.category === "meta_ads")?.amount ?? 0;
 
   return (
     <AppShell permission="finance">
-      <PageHeader eyebrow="Expenses" title={monthLabel(month)} description="Business costs like Meta ads, packaging and phone bills. Costs for one order are added on that order's page." />
+      <PageHeader eyebrow="Expenses" title={monthLabel(month)} description={<>Business costs like Meta ads, packaging and phone bills. Costs for one order are added on that order&apos;s page. Things bought in bulk to use on orders (frames etc.) go in <Link className="link" href="/stock">Stock</Link>.</>} />
       <form className="filters" action="/expenses">
         <label className="field"><span>Month</span><input type="month" name="month" defaultValue={month} /></label>
         <label className="field"><span>Category</span>
@@ -43,6 +45,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
 
       <div className="stats">
         <Stat label="Spent this month" value={<Money value={total} />} tone="dark" />
+        {stock.bought > 0 && <Stat label="Stock bought" value={<Money value={stock.bought} />} note={<Link className="link" href={`/stock?month=${month}`}>Not in this list →</Link>} />}
         <Stat label="Meta ads" value={<Money value={ads} />} note={<Link className="link" href={`/reports?month=${month}`}>Cost per order →</Link>} />
         {totals.filter((row) => row.category !== "meta_ads").slice(0, 3).map((row) => (
           <Stat key={row.category} label={expenseLabel(row.category)} value={<Money value={row.amount} />} />

@@ -51,8 +51,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             <div><span>Sales ({report.orders} orders)</span><Money value={report.figures.revenue} /></div>
             <div><span>Paid / owed to partners</span><Money value={-report.figures.partnerCosts} /></div>
             <div><span>Extra order costs</span><Money value={-report.figures.orderExpenses} /></div>
+            {report.figures.stockCosts > 0 && <div><span>Stock used on orders</span><Money value={-report.figures.stockCosts} /></div>}
             <div className="total"><span>Commission</span><Money value={report.commission} /></div>
             <div style={{ marginTop: 6 }}><span>Business costs (ads, packaging…)</span><Money value={-report.figures.businessExpenses} /></div>
+            {report.figures.stockWrittenOff > 0 && <div><span>Stock written off</span><Money value={-report.figures.stockWrittenOff} /></div>}
             <div className={`total ${report.netProfit >= 0 ? "profit" : "loss"}`}><span>Net profit</span><Money value={report.netProfit} /></div>
           </div>
           <div className="split" style={{ marginTop: 16 }}>
@@ -71,6 +73,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             <Stat label="Orders" value={report.orders} note={`${report.delivered} delivered · ${report.cancelled} cancelled`} />
             <Stat label="Meta ad spend" value={<Money value={report.adSpend} />} />
             <Stat label="Ad cost per order" value={report.costPerOrder === null ? "—" : <Money value={report.costPerOrder} />} note="Ad spend ÷ orders" />
+            <Stat label="Stock on hand" value={<Money value={report.stockOnHand} />} note={<Link className="link" href="/stock">Bought, not used yet →</Link>} />
             <Stat label="Avg commission" value={report.orders ? <Money value={Math.round(report.commission / report.orders)} /> : "—"} note="per order" />
           </div>
           <section className="card">
@@ -79,6 +82,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               <div><span>Money in (verified payments)</span><Money value={report.cash.in} /></div>
               <div><span>Paid to partners</span><Money value={-report.cash.paidPartners} /></div>
               <div><span>Expenses paid</span><Money value={-report.cash.paidExpenses} /></div>
+              {report.cash.stockBought > 0 && <div><span>Stock bought</span><Money value={-report.cash.stockBought} /></div>}
               <div className="total"><span>Net cash</span><Money value={report.cash.in - report.cash.out} /></div>
             </div>
             {report.byCategory.length > 0 && (

@@ -7,6 +7,7 @@ import { Badge, Money, StatusBadge } from "@/components/bits";
 import { ActionButton, ActionForm, Field, Select, Submit } from "@/components/form";
 import { CopyButton } from "@/components/client-bits";
 import { MediaUploader } from "@/components/uploader";
+import { returnStock, addStockToOrder } from "@/app/stock/actions";
 import {
   addBankCharges, addOrderExpense, addPayment, assignPartner, createDocument, createReceipt, deleteMedia, finishOrderUpload,
   payPartner, reversePayment, setOrderStatus, shareGallery, sharePartnerJob, startOrderUpload, updateJob, verifyPayment,
@@ -16,8 +17,9 @@ import { EXPENSE_CATEGORIES, JOB_STATUSES, ORDER_SOURCES, ORDER_STATUSES, PAYMEN
 import { getOrder, type OrderDetail } from "@/lib/data/orders";
 import { findPartners, partnerOptions } from "@/lib/data/partners";
 import { getSettings } from "@/lib/data/settings";
+import { stockOptions, stockUsedOnOrder } from "@/lib/data/stock";
 import { formatDate, formatMoney, relativeDay, titleCase, today } from "@/lib/format";
-import { advanceAmount } from "@/lib/money";
+import { advanceAmount, stockUnitCost } from "@/lib/money";
 import { viewUrl } from "@/lib/storage";
 import { baseUrl } from "@/lib/url";
 import { whatsappLink } from "@/lib/whatsapp";
@@ -72,6 +74,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
           {finance && <MoneyCard order={order} currency={currency} />}
           {finance && <Payments order={order} currency={currency} />}
           {finance && <Documents order={order} currency={currency} advancePercent={settings.default_advance_percent} />}
+          {finance && <StockUsed order={order} currency={currency} />}
           {finance && <Costs order={order} currency={currency} />}
         </div>
       </div>
@@ -314,7 +317,7 @@ function CustomerCard({ order, currency, galleryUrl }: { order: NonNullable<Orde
 
 function MoneyCard({ order, currency }: { order: NonNullable<OrderDetail>; currency: string }) {
   const planned = order.items_subtotal + order.delivery_fee;
-  const actual = order.partner_costs + order.order_expenses;
+  const actual = order.partner_costs + order.order_expenses + order.stock_costs;
   const overrun = actual - planned;
   return (
     <section className="card">
@@ -325,6 +328,7 @@ function MoneyCard({ order, currency }: { order: NonNullable<OrderDetail>; curre
         {order.pending > 0 && <div><span>Waiting to verify</span><Money value={order.pending} currency={currency} /></div>}
         <div className="total"><span>Customer balance</span><Money value={order.balance} currency={currency} /></div>
         <div style={{ marginTop: 8 }}><span>Partner costs</span><Money value={-order.partner_costs} currency={currency} /></div>
+        {order.stock_costs > 0 && <div><span>Stock used</span><Money value={-order.stock_costs} currency={currency} /></div>}
         <div><span>Extra costs</span><Money value={-order.order_expenses} currency={currency} /></div>
         <div className={`total ${order.profit >= 0 ? "profit" : "loss"}`}><span>Actual profit</span><Money value={order.profit} currency={currency} /></div>
         <small>Paid to partners so far: {formatMoney(order.partner_paid, currency)}</small>
@@ -435,6 +439,47 @@ function Documents({ order, currency, advancePercent }: { order: NonNullable<Ord
         <ActionButton action={createDocument} fields={{ order_id: order.id, kind: "invoice", amount_requested: "0" }} className="btn small">Full invoice</ActionButton>
         <ActionButton action={createDocument} fields={{ order_id: order.id, kind: "quote", amount_requested: "0" }} className="btn small ghost">Quotation</ActionButton>
       </div>
+    </section>
+  );
+}
+
+async function StockUsed({ order, currency }: { order: NonNullable<OrderDetail>; currency: string }) {
+  const [used, options] = await Promise.all([stockUsedOnOrder(order.id), stockOptions()]);
+  return (
+    <section className="card">
+      <div className="card-head"><h2>Stock used</h2><Link className="link" href="/stock">Stock →</Link></div>
+      {used.length ? (
+        <div className="list" style={{ marginBottom: 12 }}>
+          {used.map((move) => (
+            <div key={move.id}>
+              <div><strong>{move.quantity} {move.unit} · {move.item_name}</strong><small>{formatDate(move.moved_on)}</small></div>
+              <div className="row" style={{ gap: 6 }}>
+                <Money value={move.cost} currency={currency} />
+                <ActionButton action={returnStock} fields={{ move_id: move.id }} className="btn small ghost" confirm="Put this back into stock?">Return</ActionButton>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : <p className="muted" style={{ marginBottom: 12 }}>Frames and other things from our own stock. Their cost counts against this order.</p>}
+      {options.length ? (
+        <details className="panel">
+          <summary>Use from stock</summary>
+          <div className="panel-body">
+            <ActionForm action={addStockToOrder}>
+              <input type="hidden" name="order_id" value={order.id} />
+              <div className="form-grid">
+                <Select label="Item" name="item_id" required className="full" options={options.map((item) => {
+                  const each = stockUnitCost({ quantity: item.on_hand, value: item.value });
+                  return { value: item.id, label: `${item.name} — ${item.on_hand} ${item.unit} left${each === null ? "" : ` · ${formatMoney(each, currency)} each`}` };
+                })} />
+                <Field label="How many" name="quantity" type="number" min="0.01" step="0.01" defaultValue={1} required />
+                <Field label="Date" name="moved_on" type="date" defaultValue={today()} required />
+              </div>
+              <Submit>Use from stock</Submit>
+            </ActionForm>
+          </div>
+        </details>
+      ) : <p className="muted" style={{ fontSize: 13 }}>Nothing in stock. <Link className="link" href="/stock">Record a purchase</Link>.</p>}
     </section>
   );
 }

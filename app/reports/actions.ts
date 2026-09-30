@@ -17,10 +17,11 @@ export const closeMonth = formAction(monthSchema, async ({ month }, user) => {
   if (report.closedAt) throw new UserError("That month is already closed.");
   await db()`
     insert into month_closes (month, revenue, partner_costs, order_expenses, business_expenses, net_profit,
-      owner_label, partner_label, owner_percent, owner_share, partner_share, closed_by)
+      owner_label, partner_label, owner_percent, owner_share, partner_share, closed_by, stock_costs, stock_written_off)
     values (${`${month}-01`}, ${report.figures.revenue}, ${report.figures.partnerCosts}, ${report.figures.orderExpenses},
       ${report.figures.businessExpenses}, ${report.netProfit}, ${report.split.ownerLabel}, ${report.split.partnerLabel},
-      ${report.split.ownerPercent}, ${report.split.owner}, ${report.split.partner}, ${user.id})`;
+      ${report.split.ownerPercent}, ${report.split.owner}, ${report.split.partner}, ${user.id},
+      ${report.figures.stockCosts}, ${report.figures.stockWrittenOff})`;
   await audit(user.id, "month.closed", "month", month, { netProfit: report.netProfit });
   revalidatePath("/reports");
   return "Month closed. Its numbers and split are now fixed.";

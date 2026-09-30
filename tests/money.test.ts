@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceAmount, costPerOrder, customerBalance, itemsSubtotal, monthNetProfit, orderProfit, orderTotal, partnerBalance, plannedCost, round, splitProfit } from "@/lib/money";
+import { advanceAmount, costPerOrder, customerBalance, itemsSubtotal, monthNetProfit, orderProfit, orderTotal, partnerBalance, plannedCost, round, splitProfit, stockOutCost, stockUnitCost } from "@/lib/money";
 
 describe("order totals", () => {
   it("adds items and delivery, subtracts discount", () => {
@@ -65,6 +65,10 @@ describe("month and ads", () => {
     expect(monthNetProfit({ revenue: 300000, partnerCosts: 180000, orderExpenses: 12000, businessExpenses: 40000 })).toBe(68000);
   });
 
+  it("stock used and written off come off net profit", () => {
+    expect(monthNetProfit({ revenue: 300000, partnerCosts: 180000, orderExpenses: 12000, businessExpenses: 40000, stockCosts: 6000, stockWrittenOff: 2000 })).toBe(60000);
+  });
+
   it("cost per order", () => {
     expect(costPerOrder(30000, 12)).toBe(2500);
     expect(costPerOrder(30000, 0)).toBeNull();
@@ -72,5 +76,26 @@ describe("month and ads", () => {
 
   it("advance rounds up to the rupee", () => {
     expect(advanceAmount(12345, 50)).toBe(6173);
+  });
+});
+
+describe("stock", () => {
+  it("uses the average cost of what's on hand", () => {
+    expect(stockUnitCost({ quantity: 5, value: 10000 })).toBe(2000);
+    expect(stockOutCost({ quantity: 5, value: 10000 }, 1)).toBe(2000);
+    expect(stockOutCost({ quantity: 5, value: 10000 }, 2)).toBe(4000);
+  });
+
+  it("taking the last pieces uses exactly the value left", () => {
+    // 3 for 1,000 → about 333.33 each, and the three always add up to 1,000.
+    const first = stockOutCost({ quantity: 3, value: 1000 }, 1);
+    const second = stockOutCost({ quantity: 2, value: 1000 - first }, 1);
+    const last = stockOutCost({ quantity: 1, value: 1000 - first - second }, 1);
+    expect(round(first + second + last)).toBe(1000);
+  });
+
+  it("nothing on hand costs nothing and has no unit cost", () => {
+    expect(stockOutCost({ quantity: 0, value: 0 }, 1)).toBe(0);
+    expect(stockUnitCost({ quantity: 0, value: 0 })).toBeNull();
   });
 });

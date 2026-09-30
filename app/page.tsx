@@ -4,6 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { Empty, Money, Stat, StatusBadge } from "@/components/bits";
 import { can, requireUser } from "@/lib/auth";
 import { dashboardSummary, listOrders } from "@/lib/data/orders";
+import { lowStock } from "@/lib/data/stock";
 import { addDays, currentMonth, formatDate, monthLabel, relativeDay, today } from "@/lib/format";
 
 export default async function TodayPage({ searchParams }: { searchParams: Promise<{ denied?: string }> }) {
@@ -11,7 +12,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const user = await requireUser();
   const finance = can(user, "finance");
   const month = currentMonth();
-  const [{ counts, money }, active] = await Promise.all([dashboardSummary(month), listOrders({ view: "active" })]);
+  const [{ counts, money }, active, low] = await Promise.all([dashboardSummary(month), listOrders({ view: "active" }), finance ? lowStock() : []]);
   const date = today();
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: "Asia/Colombo" }).format(new Date()));
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -32,6 +33,12 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         </div>
         <Link className="btn primary" href="/orders/new"><Plus size={16} />New order</Link>
       </header>
+
+      {low.length > 0 && (
+        <p className="notice warn" style={{ marginBottom: 16 }}>
+          Stock running low: {low.map((item) => `${item.name} (${item.on_hand} ${item.unit} left)`).join(" · ")} · <Link className="link" href="/stock">Stock →</Link>
+        </p>
+      )}
 
       <div className="stats">
         <Stat label="Active orders" value={counts.active} tone="dark" note={counts.undated ? `${counts.undated} without a date` : undefined} />

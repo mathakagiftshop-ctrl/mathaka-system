@@ -55,10 +55,31 @@ export type MonthFigures = {
   partnerCosts: number;
   orderExpenses: number;
   businessExpenses: number;
+  /** Stock used on this month's orders, at the cost it was bought for. */
+  stockCosts?: number;
+  /** Stock written off (broken, unsellable) this month. */
+  stockWrittenOff?: number;
 };
 
 export function monthNetProfit(figures: MonthFigures) {
-  return round(figures.revenue - figures.partnerCosts - figures.orderExpenses - figures.businessExpenses);
+  return round(figures.revenue - figures.partnerCosts - figures.orderExpenses - (figures.stockCosts ?? 0)
+    - figures.businessExpenses - (figures.stockWrittenOff ?? 0));
+}
+
+/**
+ * Cost of taking `quantity` out of stock, at the average cost of what's on hand
+ * (5 frames bought for 10,000 → each one costs 2,000). Taking the last of it
+ * uses up exactly the value left, so rounding never leaves cents behind.
+ */
+export function stockOutCost(onHand: { quantity: number; value: number }, quantity: number) {
+  if (quantity <= 0 || onHand.quantity <= 0) return 0;
+  if (quantity >= onHand.quantity) return round(Math.max(onHand.value, 0));
+  return round(Math.max(onHand.value, 0) * quantity / onHand.quantity);
+}
+
+/** Average cost per unit of what's on hand, or null when there's none. */
+export function stockUnitCost(onHand: { quantity: number; value: number }) {
+  return onHand.quantity > 0 ? round(onHand.value / onHand.quantity) : null;
 }
 
 /** Amount for an advance request, e.g. 50% of 12,345 → 6,173 (rounded up to the rupee). */
