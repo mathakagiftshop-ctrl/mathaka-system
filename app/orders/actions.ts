@@ -41,6 +41,7 @@ const orderSchema = z.object({
   status: z.enum(ORDER_STATUS_VALUES).default("confirmed"),
   source: z.enum(ORDER_SOURCE_VALUES).default("facebook_ad"),
   delivery_fee: money.default(0),
+  markup: money.default(0),
   discount: money.default(0),
   special_request: text(2000),
   internal_notes: text(2000),
@@ -79,7 +80,7 @@ export const saveOrder = async (state: ActionState, formData: FormData): Promise
       const fields = {
         customer_id: customerId, recipient_name: input.recipient_name, recipient_phone: input.recipient_phone,
         delivery_address: input.delivery_address, city: input.city, occasion: input.occasion, delivery_date: input.delivery_date,
-        delivery_time: input.delivery_time, source: input.source, delivery_fee: input.delivery_fee, discount: input.discount,
+        delivery_time: input.delivery_time, source: input.source, delivery_fee: input.delivery_fee, markup: input.markup, discount: input.discount,
         special_request: input.special_request, internal_notes: input.internal_notes,
       };
       let id = input.order_id;

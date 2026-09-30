@@ -17,6 +17,8 @@ export function DocumentPaper({ snapshot, status, logoUrl, live }: {
   // what was already paid when it was issued). Later payments reduce what's still due.
   const target = snapshot.amountRequested ? Math.min(snapshot.paidToDate + snapshot.amountRequested, snapshot.total) : snapshot.total;
   const due = snapshot.kind === "invoice" ? Math.max(target - paid, 0) : null;
+  // Older snapshots listed a delivery fee separately; fold it into the package so delivery reads as free.
+  const packagePrice = snapshot.packagePrice ?? snapshot.subtotal + snapshot.deliveryFee;
 
   return (
     <article className="paper">
@@ -73,17 +75,22 @@ export function DocumentPaper({ snapshot, status, logoUrl, live }: {
       ) : (
         <>
           <table>
-            <thead><tr><th>Description</th><th className="right">Qty</th><th className="right">Price</th><th className="right">Amount</th></tr></thead>
+            <thead><tr><th>Package</th><th className="right">Amount</th></tr></thead>
             <tbody>
-              {snapshot.items.map((item, index) => (
-                <tr key={index}><td>{item.description}</td><td className="right num">{item.quantity}</td><td className="right num">{money(item.unitPrice)}</td><td className="right num">{money(item.amount)}</td></tr>
-              ))}
+              <tr>
+                <td>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {snapshot.items.map((item, index) => <li key={index}>{item.quantity > 1 && `${item.quantity} × `}{item.description}</li>)}
+                  </ul>
+                </td>
+                <td className="right num">{money(packagePrice)}</td>
+              </tr>
             </tbody>
           </table>
           <div className="totals">
             <dl>
-              <dt>Subtotal</dt><dd>{money(snapshot.subtotal)}</dd>
-              {snapshot.deliveryFee > 0 && <><dt>Delivery</dt><dd>{money(snapshot.deliveryFee)}</dd></>}
+              <dt>Package</dt><dd>{money(packagePrice)}</dd>
+              <dt>Delivery</dt><dd>Free</dd>
               {snapshot.discount > 0 && <><dt>Discount</dt><dd>−{money(snapshot.discount)}</dd></>}
               <dt className="grand">Total</dt><dd className="grand">{money(snapshot.total)}</dd>
               {snapshot.kind === "invoice" && paid > 0 && <><dt>Paid</dt><dd>−{money(paid)}</dd><dt>Balance</dt><dd>{money(Math.max(balance, 0))}</dd></>}

@@ -22,7 +22,7 @@ export default async function EditOrderPage({ params }: { params: Promise<{ id: 
         order={{
           id: order.id, customer_id: order.customer_id, recipient_name: order.recipient_name, recipient_phone: order.recipient_phone,
           delivery_address: order.delivery_address, city: order.city, occasion: order.occasion, delivery_date: order.delivery_date,
-          delivery_time: order.delivery_time, source: order.source, delivery_fee: order.delivery_fee, discount: order.discount,
+          delivery_time: order.delivery_time, source: order.source, delivery_fee: order.delivery_fee, markup: order.markup, discount: order.discount,
           special_request: order.special_request, internal_notes: order.internal_notes,
           items: order.items.map((item) => ({ description: item.description, quantity: item.quantity, unitPrice: item.unit_price })),
         }}

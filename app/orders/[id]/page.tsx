@@ -122,7 +122,7 @@ function Items({ order, currency, finance }: { order: NonNullable<OrderDetail>; 
       <h2>Items</h2>
       <div className="table-wrap table-plain">
         <table>
-          <thead><tr><th>Item</th><th className="right">Qty</th>{finance && <><th className="right">Price</th><th className="right">Amount</th></>}</tr></thead>
+          <thead><tr><th>Item</th><th className="right">Qty</th>{finance && <><th className="right">Our cost</th><th className="right">Amount</th></>}</tr></thead>
           <tbody>
             {order.items.map((item) => (
               <tr key={item.id}>
@@ -133,9 +133,10 @@ function Items({ order, currency, finance }: { order: NonNullable<OrderDetail>; 
           </tbody>
           {finance && (
             <tfoot>
-              {order.delivery_fee > 0 && <tr><td colSpan={3}>Delivery</td><td className="right"><Money value={order.delivery_fee} currency={currency} /></td></tr>}
+              {order.delivery_fee > 0 && <tr><td colSpan={3}>Delivery cost</td><td className="right"><Money value={order.delivery_fee} currency={currency} /></td></tr>}
+              {order.markup > 0 && <tr><td colSpan={3}>Our profit</td><td className="right"><Money value={order.markup} currency={currency} /></td></tr>}
               {order.discount > 0 && <tr><td colSpan={3}>Discount</td><td className="right"><Money value={-order.discount} currency={currency} /></td></tr>}
-              <tr><td colSpan={3}>Customer pays</td><td className="right"><Money value={order.total} currency={currency} /></td></tr>
+              <tr><td colSpan={3}>Package price (customer pays)</td><td className="right"><Money value={order.total} currency={currency} /></td></tr>
             </tfoot>
           )}
         </table>
@@ -312,6 +313,9 @@ function CustomerCard({ order, currency, galleryUrl }: { order: NonNullable<Orde
 }
 
 function MoneyCard({ order, currency }: { order: NonNullable<OrderDetail>; currency: string }) {
+  const planned = order.items_subtotal + order.delivery_fee;
+  const actual = order.partner_costs + order.order_expenses;
+  const overrun = actual - planned;
   return (
     <section className="card">
       <h2>Money</h2>
@@ -322,8 +326,14 @@ function MoneyCard({ order, currency }: { order: NonNullable<OrderDetail>; curre
         <div className="total"><span>Customer balance</span><Money value={order.balance} currency={currency} /></div>
         <div style={{ marginTop: 8 }}><span>Partner costs</span><Money value={-order.partner_costs} currency={currency} /></div>
         <div><span>Extra costs</span><Money value={-order.order_expenses} currency={currency} /></div>
-        <div className={`total ${order.profit >= 0 ? "profit" : "loss"}`}><span>Our commission</span><Money value={order.profit} currency={currency} /></div>
+        <div className={`total ${order.profit >= 0 ? "profit" : "loss"}`}><span>Actual profit</span><Money value={order.profit} currency={currency} /></div>
         <small>Paid to partners so far: {formatMoney(order.partner_paid, currency)}</small>
+        <div style={{ marginTop: 8 }}><span>Estimated cost</span><Money value={planned} currency={currency} /></div>
+        <div><span>Actually spent so far</span><Money value={actual} currency={currency} /></div>
+        {actual > 0 && overrun !== 0 && (
+          <div className={overrun > 0 ? "loss" : "profit"}><span>{overrun > 0 ? "Over estimate by" : "Under estimate by"}</span><Money value={Math.abs(overrun)} currency={currency} /></div>
+        )}
+        <div><span>Planned profit</span><Money value={order.total - planned} currency={currency} /></div>
       </div>
     </section>
   );

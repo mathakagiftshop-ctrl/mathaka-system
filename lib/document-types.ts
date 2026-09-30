@@ -13,7 +13,10 @@ export type DocumentSnapshot = {
   customer: { name: string; phone: string; country: string };
   recipient: { name: string; city: string; address: string };
   order: { number: string; occasion: string; deliveryDate: string | null };
-  items: { description: string; quantity: number; unitPrice: number; amount: number }[];
+  /** What's in the package. Older snapshots also carry per-item prices; they're never shown. */
+  items: { description: string; quantity: number; unitPrice?: number; amount?: number }[];
+  /** One price for the whole package, delivery included. Missing on older snapshots. */
+  packagePrice?: number;
   subtotal: number;
   deliveryFee: number;
   discount: number;

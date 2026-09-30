@@ -12,9 +12,14 @@ export function itemsSubtotal(items: Item[]) {
   return round(items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0));
 }
 
-/** What the customer owes for an order. */
-export function orderTotal(input: { items: Item[]; deliveryFee: number; discount: number }) {
-  return round(Math.max(itemsSubtotal(input.items) + input.deliveryFee - input.discount, 0));
+/** Our estimated cost for an order: item costs + delivery cost. Internal only. */
+export function plannedCost(input: { items: Item[]; deliveryFee: number }) {
+  return round(itemsSubtotal(input.items) + input.deliveryFee);
+}
+
+/** The package price the customer pays: estimated cost + our profit − discount. */
+export function orderTotal(input: { items: Item[]; deliveryFee: number; markup?: number; discount: number }) {
+  return round(Math.max(plannedCost(input) + (input.markup ?? 0) - input.discount, 0));
 }
 
 /** Commission on one order = price − what partners charge − extra costs for that order. */

@@ -7,7 +7,7 @@ import { saveOrder } from "@/app/orders/actions";
 import { CITIES } from "@/lib/cities";
 import { GULF_COUNTRIES, ORDER_SOURCES, ORDER_STATUSES } from "@/lib/constants";
 import { formatMoney } from "@/lib/format";
-import { orderTotal } from "@/lib/money";
+import { orderTotal, plannedCost } from "@/lib/money";
 
 type Customer = { id: string; name: string; phone: string; country: string };
 type Item = { description: string; quantity: number; unitPrice: number };
@@ -23,6 +23,7 @@ export type OrderFormValues = {
   delivery_time: string;
   source: string;
   delivery_fee: number;
+  markup: number;
   discount: number;
   special_request: string;
   internal_notes: string;
@@ -34,8 +35,10 @@ export function OrderForm({ customers, order, prefill }: { customers: Customer[]
   const [mode, setMode] = useState<"existing" | "new">(order || (customers.length && !prefill?.customer_name) ? "existing" : "new");
   const [items, setItems] = useState<Item[]>(initial?.items?.length ? initial.items : [{ description: "", quantity: 1, unitPrice: 0 }]);
   const [fee, setFee] = useState(initial?.delivery_fee ?? 0);
+  const [markup, setMarkup] = useState(initial?.markup ?? 0);
   const [discount, setDiscount] = useState(initial?.discount ?? 0);
-  const total = orderTotal({ items, deliveryFee: fee, discount });
+  const cost = plannedCost({ items, deliveryFee: fee });
+  const total = orderTotal({ items, deliveryFee: fee, markup, discount });
   const update = (index: number, patch: Partial<Item>) => setItems((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)));
 
   return (
@@ -82,23 +85,30 @@ export function OrderForm({ customers, order, prefill }: { customers: Customer[]
       </section>
 
       <section className="card">
-        <h2>Items & price</h2>
+        <h2>Package & price</h2>
+        <p className="muted" style={{ marginBottom: 12 }}>Enter what each item costs us. The customer only sees the package price (with free delivery) — never these costs.</p>
         <div className="items-editor">
-          <div className="item-row item-head"><span>Description</span><span>Qty</span><span>Price each</span><span /></div>
+          <div className="item-row item-head"><span>Description</span><span>Qty</span><span>Our cost each</span><span /></div>
           {items.map((item, index) => (
             <div className="item-row" key={index}>
               <input className="input" name="item_description[]" value={item.description} placeholder="1 kg chocolate cake with message" onChange={(event) => update(index, { description: event.target.value })} aria-label="Item description" />
               <input className="input" name="item_quantity[]" type="number" min="1" step="1" value={item.quantity} onChange={(event) => update(index, { quantity: Number(event.target.value) })} aria-label="Quantity" />
-              <input className="input" name="item_price[]" type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => update(index, { unitPrice: Number(event.target.value) })} aria-label="Price each" />
+              <input className="input" name="item_price[]" type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => update(index, { unitPrice: Number(event.target.value) })} aria-label="Our cost each" />
               <button type="button" className="btn ghost small" aria-label="Remove item" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((_, i) => i !== index))}><Trash2 size={15} /></button>
             </div>
           ))}
           <div><button type="button" className="btn small" onClick={() => setItems((current) => [...current, { description: "", quantity: 1, unitPrice: 0 }])}><Plus size={14} />Add item</button></div>
         </div>
         <div className="form-grid three" style={{ marginTop: 16 }}>
-          <Field label="Delivery fee" name="delivery_fee" type="number" min="0" step="0.01" value={fee} onChange={(event) => setFee(Number(event.target.value))} />
+          <Field label="Delivery cost (ours)" name="delivery_fee" type="number" min="0" step="0.01" value={fee} onChange={(event) => setFee(Number(event.target.value))} hint="Customer sees free delivery." />
+          <Field label="Our profit" name="markup" type="number" min="0" step="0.01" value={markup} onChange={(event) => setMarkup(Number(event.target.value))} hint="Added on top of the costs." />
           <Field label="Discount" name="discount" type="number" min="0" step="0.01" value={discount} onChange={(event) => setDiscount(Number(event.target.value))} />
-          <div className="field"><span>Customer pays</span><strong style={{ fontSize: 24, fontFamily: "var(--font-serif)" }}>{formatMoney(total)}</strong></div>
+        </div>
+        <div className="money-lines" style={{ marginTop: 16, maxWidth: 360 }}>
+          <div><span>Estimated cost (items + delivery)</span><span>{formatMoney(cost)}</span></div>
+          <div><span>+ Our profit</span><span>{formatMoney(markup)}</span></div>
+          {discount > 0 && <div><span>− Discount</span><span>{formatMoney(discount)}</span></div>}
+          <div className="total"><span>Package price (customer pays)</span><strong style={{ fontSize: 22, fontFamily: "var(--font-serif)" }}>{formatMoney(total)}</strong></div>
         </div>
       </section>
 

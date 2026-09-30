@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { advanceAmount, costPerOrder, customerBalance, itemsSubtotal, monthNetProfit, orderProfit, orderTotal, partnerBalance, round, splitProfit } from "@/lib/money";
+import { advanceAmount, costPerOrder, customerBalance, itemsSubtotal, monthNetProfit, orderProfit, orderTotal, partnerBalance, plannedCost, round, splitProfit } from "@/lib/money";
 
 describe("order totals", () => {
   it("adds items and delivery, subtracts discount", () => {
     expect(orderTotal({ items: [{ quantity: 1, unitPrice: 8500 }, { quantity: 2, unitPrice: 1250 }], deliveryFee: 750, discount: 500 })).toBe(11250);
+  });
+
+  it("adds our profit on top of the costs to make the package price", () => {
+    const items = [{ quantity: 1, unitPrice: 6000 }, { quantity: 1, unitPrice: 2500 }];
+    expect(plannedCost({ items, deliveryFee: 1500 })).toBe(10000);
+    expect(orderTotal({ items, deliveryFee: 1500, markup: 4000, discount: 0 })).toBe(14000);
   });
 
   it("never goes below zero", () => {

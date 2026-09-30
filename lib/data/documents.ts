@@ -34,8 +34,8 @@ export async function buildSnapshot(sql: postgres.Sql | postgres.TransactionSql,
     sql`select * from settings where id = 1`,
     sql`select o.*, c.name as customer_name, c.phone as customer_phone, c.country as customer_country, s.items_subtotal, s.total, s.paid
         from orders o join customers c on c.id = o.customer_id join order_summary s on s.order_id = o.id where o.id = ${doc.order_id}`,
-    sql<{ description: string; quantity: number; unit_price: number }[]>`
-      select description, quantity, unit_price from order_items where order_id = ${doc.order_id} order by sort_order, id`,
+    sql<{ description: string; quantity: number }[]>`
+      select description, quantity from order_items where order_id = ${doc.order_id} order by sort_order, id`,
     doc.term_ids.length
       ? sql<{ title: string; body: string }[]>`select title, body from terms where id in ${sql(doc.term_ids)} order by sort_order, created_at`
       : Promise.resolve([] as { title: string; body: string }[]),
@@ -58,9 +58,11 @@ export async function buildSnapshot(sql: postgres.Sql | postgres.TransactionSql,
     customer: { name: order.customer_name, phone: order.customer_phone, country: order.customer_country },
     recipient: { name: order.recipient_name, city: order.city, address: order.delivery_address },
     order: { number: order.number, occasion: order.occasion, deliveryDate: order.delivery_date },
-    items: items.map((item) => ({ description: item.description, quantity: item.quantity, unitPrice: item.unit_price, amount: round(item.quantity * item.unit_price) })),
-    subtotal: order.items_subtotal,
-    deliveryFee: order.delivery_fee,
+    // Customers see one package price with free delivery; our costs and markup stay internal.
+    items: items.map((item) => ({ description: item.description, quantity: item.quantity })),
+    packagePrice: round(order.total + order.discount),
+    subtotal: round(order.total + order.discount),
+    deliveryFee: 0,
     discount: order.discount,
     total: order.total,
     paidToDate: order.paid,
