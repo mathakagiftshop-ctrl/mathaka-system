@@ -25,7 +25,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const found = await getDocument(id);
   if (!found) notFound();
-  const { doc, snapshot } = found;
+  const { doc, snapshot, live } = found;
   const [terms, logoUrl, site] = await Promise.all([
     doc.status === "draft" ? listTerms({ activeOnly: true }) : Promise.resolve([]),
     snapshot.business.logoKey ? viewUrl(snapshot.business.logoKey) : Promise.resolve(null),
@@ -34,7 +34,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
   const publicUrl = doc.share_token ? `${site}/i/${doc.share_token}` : null;
   const label = DOCUMENT_LABELS[doc.kind];
   const first = snapshot.customer.name.split(" ")[0];
-  const amount = doc.kind === "receipt" ? snapshot.payment?.amount ?? 0 : Math.min(snapshot.amountRequested ?? snapshot.balance, snapshot.balance);
+  const amount = doc.kind === "receipt" ? snapshot.payment?.amount ?? 0 : Math.max(Math.min(snapshot.amountRequested ?? live.balance, live.balance), 0);
   const message = doc.kind === "receipt"
     ? `Hi ${first}, thank you! We received ${formatMoney(amount, snapshot.currency)} for ${snapshot.recipient.name}'s celebration. Your receipt ${snapshot.number}: ${publicUrl}`
     : doc.kind === "quote"
@@ -56,7 +56,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
       </div>
 
       <div className="grid sidebar-right">
-        <DocumentPaper snapshot={snapshot} status={doc.status} logoUrl={logoUrl} />
+        <DocumentPaper snapshot={snapshot} status={doc.status} logoUrl={logoUrl} live={live} />
 
         <aside className="stack no-print">
           {doc.status === "draft" && (

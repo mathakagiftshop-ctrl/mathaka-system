@@ -82,8 +82,11 @@ export async function getDocument(id: string) {
   const sql = db();
   const [doc] = await sql<DocumentRow[]>`select * from documents where id = ${id}`;
   if (!doc) return null;
-  const snapshot = doc.snapshot ?? (await buildSnapshot(sql, doc, null));
-  return { doc, snapshot };
+  const [snapshot, [live]] = await Promise.all([
+    doc.snapshot ?? buildSnapshot(sql, doc, null),
+    sql<{ paid: number; balance: number }[]>`select paid, balance from order_summary where order_id = ${doc.order_id}`,
+  ]);
+  return { doc, snapshot, live };
 }
 
 /** Public lookup by share token. Returns null for unknown, expired, draft or void links. */
