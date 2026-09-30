@@ -149,7 +149,14 @@ const paymentSchema = z.object({
   received_on: requiredDate,
   notes: text(500),
   verified: z.string().optional(),
+  bank_charges: money.default(0),
 });
+
+/** Bank charges taken off a customer's transfer are our cost for that order, not a shortfall they owe. */
+async function recordBankCharges(tx: Tx, orderId: string, amount: number, receivedOn: string, userId: string) {
+  await tx`insert into expenses (order_id, category, description, amount, spent_on, created_by)
+           values (${orderId}, 'bank_fees', 'Bank charges on customer payment', ${amount}, ${receivedOn}, ${userId})`;
+}
 
 export async function addPayment(_state: ActionState, formData: FormData): Promise<ActionState> {
   // Handled outside formAction because it can carry a file.
@@ -161,11 +168,15 @@ export async function addPayment(_state: ActionState, formData: FormData): Promi
     const proof = formData.get("proof");
     const proofKey = proof instanceof File && proof.size > 0 ? await uploadFile(proof, `payments/${input.order_id}`, PROOF_TYPES) : null;
     const verified = input.verified === "on";
-    await db()`
-      insert into customer_payments (order_id, amount, method, reference, received_on, notes, proof_key, status, recorded_by, verified_by, verified_at)
-      values (${input.order_id}, ${input.amount}, ${input.method}, ${input.reference}, ${input.received_on}, ${input.notes}, ${proofKey},
-              ${verified ? "verified" : "pending"}, ${user.id}, ${verified ? user.id : null}, ${verified ? new Date() : null})`;
-    await audit(user.id, "payment.recorded", "order", input.order_id, { amount: input.amount, verified });
+    if (input.bank_charges >= input.amount) throw new UserError("Bank charges must be less than the amount the customer sent.");
+    await db().begin(async (tx) => {
+      await tx`
+        insert into customer_payments (order_id, amount, method, reference, received_on, notes, proof_key, status, recorded_by, verified_by, verified_at)
+        values (${input.order_id}, ${input.amount}, ${input.method}, ${input.reference}, ${input.received_on}, ${input.notes}, ${proofKey},
+                ${verified ? "verified" : "pending"}, ${user.id}, ${verified ? user.id : null}, ${verified ? new Date() : null})`;
+      if (input.bank_charges > 0) await recordBankCharges(tx, input.order_id, input.bank_charges, input.received_on, user.id);
+      await audit(user.id, "payment.recorded", "order", input.order_id, { amount: input.amount, bank_charges: input.bank_charges, verified }, tx);
+    });
     touch(input.order_id);
     return { ok: true, message: verified ? "Payment recorded. You can now issue a receipt." : "Payment saved as pending — verify it once it shows in the bank.", at: Date.now() };
   } catch (error) {
@@ -182,6 +193,21 @@ export const verifyPayment = formAction(z.object({ payment_id: uuid }), async ({
   await audit(user.id, "payment.verified", "payment", payment_id);
   touch(rows[0].order_id);
   return "Payment verified.";
+}, "finance");
+
+/** Fix a payment recorded as the amount that landed: credit the customer the charges and book them as our cost. */
+export const addBankCharges = formAction(z.object({ payment_id: uuid, bank_charges: positiveMoney }), async ({ payment_id, bank_charges }, user) => {
+  const orderId = await db().begin(async (tx) => {
+    const [payment] = await tx<{ order_id: string; received_on: string }[]>`
+      update customer_payments set amount = amount + ${bank_charges}
+      where id = ${payment_id} and status <> 'reversed' returning order_id, received_on`;
+    if (!payment) throw new UserError("That payment was reversed.");
+    await recordBankCharges(tx, payment.order_id, bank_charges, payment.received_on, user.id);
+    await audit(user.id, "payment.bank_charges", "payment", payment_id, { bank_charges }, tx);
+    return payment.order_id;
+  });
+  touch(orderId);
+  return "Bank charges added — the customer is credited the full amount they sent.";
 }, "finance");
 
 export const reversePayment = formAction(z.object({ payment_id: uuid, reason: requiredText(300) }), async ({ payment_id, reason }, user) => {

@@ -8,7 +8,7 @@ import { ActionButton, ActionForm, Field, Select, Submit } from "@/components/fo
 import { CopyButton } from "@/components/client-bits";
 import { MediaUploader } from "@/components/uploader";
 import {
-  addOrderExpense, addPayment, assignPartner, createDocument, createReceipt, deleteMedia, finishOrderUpload,
+  addBankCharges, addOrderExpense, addPayment, assignPartner, createDocument, createReceipt, deleteMedia, finishOrderUpload,
   payPartner, reversePayment, setOrderStatus, shareGallery, sharePartnerJob, startOrderUpload, updateJob, verifyPayment,
 } from "@/app/orders/actions";
 import { can, requireUser } from "@/lib/auth";
@@ -360,6 +360,19 @@ function Payments({ order, currency }: { order: NonNullable<OrderDetail>; curren
                   : <ActionButton action={createReceipt} fields={{ payment_id: payment.id }}><Receipt size={13} />Receipt</ActionButton>)}
                 {payment.status !== "reversed" && (
                   <details className="panel">
+                    <summary>Bank charges</summary>
+                    <div className="panel-body">
+                      <ActionForm action={addBankCharges}>
+                        <input type="hidden" name="payment_id" value={payment.id} />
+                        <Field label="Charges deducted" name="bank_charges" type="number" min="0.01" step="0.01" required defaultValue={order.balance > 0 ? order.balance : undefined}
+                          hint="Adds this to the payment and records it as a bank fee cost." />
+                        <Submit className="btn small">Add charges</Submit>
+                      </ActionForm>
+                    </div>
+                  </details>
+                )}
+                {payment.status !== "reversed" && (
+                  <details className="panel">
                     <summary>Reverse</summary>
                     <div className="panel-body">
                       <ActionForm action={reversePayment}>
@@ -381,7 +394,8 @@ function Payments({ order, currency }: { order: NonNullable<OrderDetail>; curren
           <ActionForm action={addPayment}>
             <input type="hidden" name="order_id" value={order.id} />
             <div className="form-grid">
-              <Field label="Amount" name="amount" type="number" min="1" step="0.01" required defaultValue={order.balance > 0 ? order.balance : undefined} />
+              <Field label="Amount customer sent" name="amount" type="number" min="1" step="0.01" required defaultValue={order.balance > 0 ? order.balance : undefined} />
+              <Field label="Bank charges deducted" name="bank_charges" type="number" min="0" step="0.01" defaultValue={0} hint="If less arrived than they sent. Counted as our cost." />
               <Field label="Received on" name="received_on" type="date" defaultValue={today()} required />
               <Select label="Method" name="method" options={PAYMENT_METHODS} />
               <Field label="Reference" name="reference" placeholder="Bank ref / slip no." />
