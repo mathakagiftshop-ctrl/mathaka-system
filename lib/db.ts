@@ -6,14 +6,16 @@ const globalForDb = globalThis as unknown as { mathakaSql?: postgres.Sql };
 /**
  * One small client per server instance. DATABASE_URL should point at the
  * provider's connection pooler (Neon: the `-pooler` host), which is what makes
- * many serverless instances safe.
+ * many serverless instances safe. Functions run in sin1 (vercel.json), next to
+ * the Neon database in ap-southeast-1.
  */
 export function db() {
   if (!globalForDb.mathakaSql) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not configured");
     globalForDb.mathakaSql = postgres(url, {
-      max: process.env.NODE_ENV === "production" ? 1 : 4,
+      // Pages fire several queries with Promise.all; with 1 connection they'd queue.
+      max: 5,
       idle_timeout: 20,
       connect_timeout: 10,
       prepare: false,
