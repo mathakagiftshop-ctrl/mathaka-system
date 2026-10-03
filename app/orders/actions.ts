@@ -301,6 +301,32 @@ export const voidPartnerPayment = formAction(z.object({ payment_id: uuid, reason
   return "Payment voided.";
 }, "finance");
 
+/** Rate a partner's work once the order is delivered. Rating again replaces the earlier one. */
+export const ratePartnerJob = formAction(z.object({
+  job_id: uuid,
+  stars: z.coerce.number().int().min(1, "Pick 1 to 5 stars").max(5),
+  comment: text(1000),
+}), async (input, user) => {
+  const job = await db().begin(async (tx) => {
+    const [job] = await tx<{ order_id: string; partner_id: string; order_status: string; job_status: string }[]>`
+      select j.order_id, j.partner_id, o.status as order_status, j.status as job_status
+      from partner_jobs j join orders o on o.id = j.order_id where j.id = ${input.job_id}`;
+    if (!job) throw new UserError("That job no longer exists.");
+    if (!["delivered", "completed"].includes(job.order_status)) throw new UserError("Rate partners once the order is delivered.");
+    if (job.job_status === "cancelled") throw new UserError("That partner job was cancelled.");
+    await tx`
+      insert into partner_ratings (job_id, partner_id, order_id, stars, comment, rated_by)
+      values (${input.job_id}, ${job.partner_id}, ${job.order_id}, ${input.stars}, ${input.comment}, ${user.id})
+      on conflict (job_id) do update set stars = excluded.stars, comment = excluded.comment, rated_by = excluded.rated_by, updated_at = now()`;
+    await audit(user.id, "partner.rated", "partner", job.partner_id, { job: input.job_id, stars: input.stars }, tx);
+    return job;
+  });
+  touch(job.order_id);
+  revalidatePath(`/partners/${job.partner_id}`);
+  revalidatePath("/partners");
+  return "Thanks — rating saved.";
+});
+
 /** A link the partner can open to see the job and upload delivery photos. */
 export const sharePartnerJob = formAction(z.object({ job_id: uuid }), async ({ job_id }) => {
   const token = randomBytes(18).toString("base64url");

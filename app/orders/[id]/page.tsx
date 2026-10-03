@@ -3,19 +3,19 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, FileText, MessageCircle, Pencil, Receipt } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { Badge, Money, StatusBadge } from "@/components/bits";
-import { ActionButton, ActionForm, Field, Select, Submit } from "@/components/form";
+import { Badge, Money, StarInput, Stars, StatusBadge } from "@/components/bits";
+import { ActionButton, ActionForm, Field, Select, Submit, TextArea } from "@/components/form";
 import { CopyButton } from "@/components/client-bits";
 import { MediaUploader } from "@/components/uploader";
 import { returnStock, addStockToOrder } from "@/app/stock/actions";
 import {
   addBankCharges, addOrderExpense, addPayment, assignPartner, createDocument, createReceipt, deleteMedia, finishOrderUpload,
-  payPartner, reversePayment, setOrderStatus, shareGallery, sharePartnerJob, startOrderUpload, updateJob, verifyPayment,
+  payPartner, ratePartnerJob, reversePayment, setOrderStatus, shareGallery, sharePartnerJob, startOrderUpload, updateJob, verifyPayment,
 } from "@/app/orders/actions";
 import { can, requireUser } from "@/lib/auth";
 import { EXPENSE_CATEGORIES, JOB_STATUSES, ORDER_SOURCES, ORDER_STATUSES, PAYMENT_METHODS, expenseLabel, methodLabel } from "@/lib/constants";
 import { getOrder, type OrderDetail } from "@/lib/data/orders";
-import { findPartners, partnerOptions } from "@/lib/data/partners";
+import { findPartners, partnerOptions, partnerScore } from "@/lib/data/partners";
 import { getSettings } from "@/lib/data/settings";
 import { stockOptions, stockUsedOnOrder } from "@/lib/data/stock";
 import { formatDate, formatMoney, relativeDay, titleCase, today } from "@/lib/format";
@@ -64,6 +64,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
 
       <div className="grid sidebar-right">
         <div className="stack">
+          <RatePartners order={order} />
           <Delivery order={order} />
           <Items order={order} currency={currency} finance={finance} />
           <Partners order={order} matches={matches} allPartners={allPartners} currency={currency} finance={finance} site={site} />
@@ -97,6 +98,44 @@ function StatusSteps({ order }: { order: NonNullable<OrderDetail> }) {
         ? <ActionButton action={setOrderStatus} fields={{ order_id: order.id, status: "cancelled" }} confirm="Cancel this order?">Cancel order</ActionButton>
         : <ActionButton action={setOrderStatus} fields={{ order_id: order.id, status: "confirmed" }} className="current">Cancelled — reopen</ActionButton>}
     </div>
+  );
+}
+
+/** After a successful order, ask how each partner did. */
+function RatePartners({ order }: { order: NonNullable<OrderDetail> }) {
+  const jobs = order.jobs.filter((job) => job.status !== "cancelled");
+  if (!["delivered", "completed"].includes(order.status) || !jobs.length) return null;
+  const unrated = jobs.filter((job) => !job.stars);
+  return (
+    <section className="card" style={unrated.length ? { borderColor: "var(--marigold)", background: "var(--marigold-soft)" } : undefined}>
+      <div className="card-head">
+        <h2>{unrated.length ? "How did the partners do?" : "Partner ratings"}</h2>
+        {unrated.length > 0 && <Badge tone="gold">{unrated.length} to rate</Badge>}
+      </div>
+      <div className="stack">
+        {jobs.map((job) => {
+          const form = (
+            <ActionForm action={ratePartnerJob} resetOnSuccess={Boolean(job.stars)}>
+              <input type="hidden" name="job_id" value={job.id} />
+              <StarInput defaultValue={job.stars} />
+              <TextArea label="Note (optional)" name="comment" rows={2} defaultValue={job.rating_comment ?? ""} placeholder="On time? Cake quality? Would you use them again?" />
+              <div><Submit className="btn small primary">{job.stars ? "Update rating" : "Save rating"}</Submit></div>
+            </ActionForm>
+          );
+          return (
+            <div key={job.id}>
+              <strong>{job.partner_name}</strong> <small style={{ display: "inline" }}>· {job.description}</small>
+              {job.stars ? (
+                <>
+                  <p><Stars score={{ stars: job.stars, count: 0 }} />{job.rating_comment && <> · “{job.rating_comment}”</>}</p>
+                  <details className="panel" style={{ marginTop: 6 }}><summary>Change rating</summary><div className="panel-body">{form}</div></details>
+                </>
+              ) : <div style={{ marginTop: 6 }}>{form}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -166,6 +205,7 @@ function Partners({ order, matches, allPartners, currency, finance, site }: {
                   <div>
                     <Link className="link" href={`/partners/${job.partner_id}`}>{job.partner_name}</Link> <small>· {job.partner_city}</small>
                     <p>{job.description}</p>
+                    {job.stars && <small><Stars score={{ stars: job.stars, count: 0 }} />{job.rating_comment && ` · “${job.rating_comment}”`}</small>}
                   </div>
                   <Badge tone={job.status === "delivered" ? "sage" : job.status === "cancelled" ? "ribbon" : "gold"}>{titleCase(job.status)}</Badge>
                 </div>
@@ -226,7 +266,7 @@ function Partners({ order, matches, allPartners, currency, finance, site }: {
                   <div>
                     <strong>{partner.name} <small style={{ display: "inline" }}>· {partner.city}</small></strong>
                     <small>{partner.reason}{partner.covers && partner.distanceKm ? ` · ${Math.round(partner.distanceKm)} km` : ""} · {partner.services.join(", ") || "No services listed"}</small>
-                    <small>{partner.jobsThatDay ? `⚠ Already has ${partner.jobsThatDay} other job(s) that day` : order.delivery_date ? "Free that day" : "Set a delivery date to check availability"}{partner.rating ? ` · ${"★".repeat(partner.rating)}` : ""}</small>
+                    <small>{partner.jobsThatDay ? `⚠ Already has ${partner.jobsThatDay} other job(s) that day` : order.delivery_date ? "Free that day" : "Set a delivery date to check availability"}{partnerScore(partner) && <> · <Stars score={partnerScore(partner)} /></>}</small>
                   </div>
                   {partner.covers ? <Badge tone="sage">Covers</Badge> : <Badge>Nearby</Badge>}
                 </div>

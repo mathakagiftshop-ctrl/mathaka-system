@@ -4,6 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { Empty, Money, Stat, StatusBadge } from "@/components/bits";
 import { can, requireUser } from "@/lib/auth";
 import { dashboardSummary, listOrders } from "@/lib/data/orders";
+import { unratedJobs } from "@/lib/data/partners";
 import { lowStock } from "@/lib/data/stock";
 import { addDays, currentMonth, formatDate, monthLabel, relativeDay, today } from "@/lib/format";
 
@@ -12,7 +13,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const user = await requireUser();
   const finance = can(user, "finance");
   const month = currentMonth();
-  const [{ counts, money }, active, low] = await Promise.all([dashboardSummary(month), listOrders({ view: "active" }), finance ? lowStock() : []]);
+  const [{ counts, money }, active, low, toRate] = await Promise.all([dashboardSummary(month), listOrders({ view: "active" }), finance ? lowStock() : [], unratedJobs(5)]);
   const date = today();
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: "Asia/Colombo" }).format(new Date()));
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -86,7 +87,13 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                 <span className="badge sage">Delivered</span>
               </Link>
             ))}
-            {!noPartner.length && !(finance && unpaid.length) && !needsClosing.length && <p className="muted">All clear. 🎉</p>}
+            {toRate.map((job) => (
+              <Link key={`r-${job.job_id}`} href={`/orders/${job.order_id}`}>
+                <div><strong>Rate {job.partner_name}</strong><small>{job.order_number} · {job.recipient_name}</small></div>
+                <span className="badge gold">★ Rate</span>
+              </Link>
+            ))}
+            {!noPartner.length && !(finance && unpaid.length) && !needsClosing.length && !toRate.length && <p className="muted">All clear. 🎉</p>}
           </div>
         </section>
       </div>

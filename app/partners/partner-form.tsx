@@ -15,11 +15,12 @@ export function PartnerForm({ partner }: { partner?: PartnerRow }) {
           <Field label="Name" name="name" required defaultValue={partner?.name} />
           <Field label="Business / page name" name="business_name" defaultValue={partner?.business_name} placeholder="e.g. Sweet Bites Cakes (Facebook)" />
           <Field label="WhatsApp number" name="phone" defaultValue={partner?.phone} placeholder="077 123 4567" />
-          <label className="field"><span>Rating</span>
+          <label className="field"><span>Starting rating</span>
             <select name="rating" defaultValue={partner?.rating ?? 0}>
               <option value={0}>Not rated</option>
               {[5, 4, 3, 2, 1].map((stars) => <option key={stars} value={stars}>{"★".repeat(stars)}</option>)}
             </select>
+            <small>Used until they get ratings from delivered orders.</small>
           </label>
         </div>
       </section>

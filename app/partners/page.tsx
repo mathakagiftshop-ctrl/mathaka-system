@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MessageCircle, Plus, Search } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { Badge, Empty, Money, PageHeader, Stat } from "@/components/bits";
+import { Badge, Empty, Money, PageHeader, Stars, Stat } from "@/components/bits";
 import { SriLankaMap, type MapMarker } from "@/components/sri-lanka-map";
 import { can, requireUser } from "@/lib/auth";
 import { CITIES, findCity } from "@/lib/cities";
 import { SERVICES } from "@/lib/constants";
-import { findPartners, listPartners, type PartnerRow } from "@/lib/data/partners";
+import { findPartners, listPartners, partnerScore, type PartnerRow } from "@/lib/data/partners";
 import { formatDate } from "@/lib/format";
 import { whatsappLink } from "@/lib/whatsapp";
 
@@ -59,7 +59,7 @@ export default async function PartnersPage({ searchParams }: { searchParams: Pro
                   <h3><Link href={`/partners/${partner.id}`} className="row-link">{partner.name}</Link> <small style={{ display: "inline" }}>· {partner.city}</small></h3>
                   <p className="meta">
                     {partner.reason}{partner.covers && partner.distanceKm ? ` · ${Math.round(partner.distanceKm)} km away` : ""} · {partner.services.join(", ") || "No services listed"}
-                    {partner.rating ? ` · ${"★".repeat(partner.rating)}` : ""}
+                    {partnerScore(partner) && <> · <Stars score={partnerScore(partner)} /></>}
                   </p>
                   <p className="meta">
                     {params.date ? (partner.jobsThatDay ? `⚠ ${partner.jobsThatDay} job(s) already on ${formatDate(params.date)}` : `Free on ${formatDate(params.date)}`) : `${partner.open_jobs} open job(s)`}
@@ -97,13 +97,14 @@ export default async function PartnersPage({ searchParams }: { searchParams: Pro
       ) : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Partner</th><th>Town</th><th>Services</th><th className="right">Open jobs</th><th className="right">Done</th>{finance && <th className="right">Balance</th>}</tr></thead>
+            <thead><tr><th>Partner</th><th>Town</th><th>Services</th><th>Rating</th><th className="right">Open jobs</th><th className="right">Done</th>{finance && <th className="right">Balance</th>}</tr></thead>
             <tbody>
               {partners.map((partner) => (
                 <tr key={partner.id} className="clickable">
                   <td><Link className="row-link" href={`/partners/${partner.id}`}>{partner.name}</Link>{!partner.active && <> <Badge>Archived</Badge></>}<small>{partner.phone}</small></td>
                   <td>{partner.city}<small>{partner.service_radius_km} km{partner.extra_cities.length ? ` + ${partner.extra_cities.length} towns` : ""}</small></td>
                   <td><div className="chips">{partner.services.map((service) => <span className="chip" key={service}>{service}</span>)}</div></td>
+                  <td>{partnerScore(partner) ? <Stars score={partnerScore(partner)} /> : <small>Not rated</small>}</td>
                   <td className="right num">{partner.open_jobs}</td>
                   <td className="right num">{partner.done_jobs}</td>
                   {finance && <td className="right">{partner.balance > 0 ? <><Money value={partner.balance} /><small>we owe</small></> : partner.balance < 0 ? <><Money value={-partner.balance} /><small>advance</small></> : <small>Settled</small>}</td>}

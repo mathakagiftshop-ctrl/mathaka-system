@@ -167,6 +167,18 @@ small, .muted { color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { padding: 3px 9px; border-radius: 5px; background: var(--paper-deep); font-size: 12px; font-weight: 600; }
 
+/* ---------- Star ratings ---------- */
+
+.stars { color: #b37708; font-weight: 700; white-space: nowrap; }
+.stars small { display: inline; color: var(--muted); font-weight: 600; }
+/* Reversed so "this star and every star before it" is ~ (following siblings). */
+.star-input { display: inline-flex; flex-direction: row-reverse; justify-content: flex-end; gap: 2px; }
+.star-input label { cursor: pointer; font-size: 28px; line-height: 1; color: #d9cbbb; }
+.star-input input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.star-input label:hover, .star-input label:hover ~ label,
+.star-input input:checked + span, .star-input label:has(input:checked) ~ label { color: var(--marigold); }
+.star-input input:focus-visible + span { outline: 2px solid var(--ribbon); border-radius: 3px; }
+
 /* ---------- Tabs ---------- */
 
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
@@ -357,3 +369,5 @@ details.panel > .panel-body { padding: 4px 14px 16px; }
   .paper { box-shadow: none; padding: 0; max-width: none; border-top: 0; }
   .paper .due-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

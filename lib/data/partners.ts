@@ -13,6 +13,8 @@ export type PartnerRow = {
   service_radius_km: number;
   extra_cities: string[];
   rating: number | null;
+  avg_stars: number | null;
+  ratings: number;
   bank_details: string;
   notes: string;
   active: boolean;
@@ -26,8 +28,8 @@ export type PartnerRow = {
 export async function listPartners(options: { includeInactive?: boolean } = {}) {
   const sql = db();
   return sql<PartnerRow[]>`
-    select p.*, b.agreed, b.paid, b.balance, b.open_jobs, b.done_jobs
-    from partners p join partner_balances b on b.partner_id = p.id
+    select p.*, b.agreed, b.paid, b.balance, b.open_jobs, b.done_jobs, sc.avg_stars, sc.ratings
+    from partners p join partner_balances b on b.partner_id = p.id join partner_scores sc on sc.partner_id = p.id
     where ${options.includeInactive ? sql`true` : sql`p.active`}
     order by p.active desc, p.name
   `;
@@ -37,15 +39,16 @@ export async function getPartner(id: string) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const sql = db();
   const [partner] = await sql<PartnerRow[]>`
-    select p.*, b.agreed, b.paid, b.balance, b.open_jobs, b.done_jobs
-    from partners p join partner_balances b on b.partner_id = p.id where p.id = ${id}
+    select p.*, b.agreed, b.paid, b.balance, b.open_jobs, b.done_jobs, sc.avg_stars, sc.ratings
+    from partners p join partner_balances b on b.partner_id = p.id join partner_scores sc on sc.partner_id = p.id where p.id = ${id}
   `;
   if (!partner) return null;
   const [jobs, payments] = await Promise.all([
-    sql<{ id: string; order_id: string; order_number: string; recipient_name: string; city: string; delivery_date: string | null; description: string; agreed_amount: number; status: string; paid: number }[]>`
+    sql<{ id: string; order_id: string; order_number: string; recipient_name: string; city: string; delivery_date: string | null; description: string; agreed_amount: number; status: string; paid: number; stars: number | null; rating_comment: string | null }[]>`
       select j.id, j.order_id, o.number as order_number, o.recipient_name, o.city, o.delivery_date, j.description, j.agreed_amount, j.status,
-        coalesce((select sum(amount) from partner_payments where job_id = j.id and voided_at is null), 0) as paid
-      from partner_jobs j join orders o on o.id = j.order_id
+        coalesce((select sum(amount) from partner_payments where job_id = j.id and voided_at is null), 0) as paid,
+        r.stars, r.comment as rating_comment
+      from partner_jobs j join orders o on o.id = j.order_id left join partner_ratings r on r.job_id = j.id
       where j.partner_id = ${id} order by o.delivery_date desc nulls first, j.created_at desc`,
     sql<{ id: string; amount: number; kind: string; method: string; reference: string; paid_on: string; notes: string; job_id: string | null; order_number: string | null; voided_at: Date | null; void_reason: string | null }[]>`
       select pp.id, pp.amount, pp.kind, pp.method, pp.reference, pp.paid_on, pp.notes, pp.job_id, o.number as order_number, pp.voided_at, pp.void_reason
@@ -83,6 +86,24 @@ export async function findPartners(city: string, options: { date?: string | null
     }))
     .filter((partner) => partner.covers || (knownCity && partner.distanceKm !== null && partner.distanceKm <= 60))
     .sort((a, b) => Number(b.covers) - Number(a.covers) || (a.distanceKm ?? 999) - (b.distanceKm ?? 999) || a.jobsThatDay - b.jobsThatDay);
+}
+
+/** Their score from job ratings, or the manual rating until they have any. */
+export function partnerScore(partner: Pick<PartnerRow, "avg_stars" | "ratings" | "rating">) {
+  if (partner.ratings > 0 && partner.avg_stars !== null) return { stars: partner.avg_stars, count: partner.ratings };
+  return partner.rating ? { stars: partner.rating, count: 0 } : null;
+}
+
+/** Partner jobs on delivered/completed orders that nobody has rated yet. */
+export async function unratedJobs(limit = 10) {
+  return db()<{ job_id: string; order_id: string; order_number: string; recipient_name: string; partner_name: string }[]>`
+    select j.id as job_id, o.id as order_id, o.number as order_number, o.recipient_name, p.name as partner_name
+    from partner_jobs j join orders o on o.id = j.order_id join partners p on p.id = j.partner_id
+    where o.status in ('delivered', 'completed') and j.status <> 'cancelled'
+      and not exists (select 1 from partner_ratings r where r.job_id = j.id)
+      and coalesce(o.delivered_at, o.updated_at) > now() - interval '60 days'
+    order by coalesce(o.delivered_at, o.updated_at) desc
+    limit ${limit}`;
 }
 
 export async function partnerOptions() {

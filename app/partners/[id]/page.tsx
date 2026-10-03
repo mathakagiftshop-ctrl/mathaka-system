@@ -3,13 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MessageCircle, Pencil } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { Badge, Money, Stat, StatusBadge } from "@/components/bits";
+import { Badge, Money, Stars, Stat, StatusBadge } from "@/components/bits";
 import { ActionButton, ActionForm, Field, Select, Submit } from "@/components/form";
 import { payPartner, voidPartnerPayment } from "@/app/orders/actions";
 import { setPartnerActive } from "@/app/partners/actions";
 import { can, requireUser } from "@/lib/auth";
 import { PAYMENT_METHODS, methodLabel } from "@/lib/constants";
-import { getPartner } from "@/lib/data/partners";
+import { getPartner, partnerScore } from "@/lib/data/partners";
 import { formatDate, titleCase, today } from "@/lib/format";
 import { whatsappLink } from "@/lib/whatsapp";
 
@@ -24,6 +24,8 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
   if (!partner) notFound();
   const finance = can(user, "finance");
   const openJobs = partner.jobs.filter((job) => !["delivered", "cancelled"].includes(job.status));
+  const score = partnerScore(partner);
+  const reviews = partner.jobs.filter((job) => job.stars);
 
   return (
     <AppShell>
@@ -43,6 +45,7 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
 
       <div className="stats">
         <Stat label="Jobs done" value={partner.done_jobs} note={`${openJobs.length} open`} />
+        <Stat label="Rating" value={score ? <Stars score={score} /> : "—"} note={score?.count ? `from ${score.count} order${score.count === 1 ? "" : "s"}` : score ? "Manual rating — no order ratings yet" : "Rated after each delivered order"} />
         {finance && <Stat label="Work agreed (all time)" value={<Money value={partner.agreed} />} />}
         {finance && <Stat label="Paid to them" value={<Money value={partner.paid} />} />}
         {finance && (
@@ -62,7 +65,7 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
             {partner.jobs.length === 0 ? <p className="muted">No jobs yet.</p> : (
               <div className="table-wrap table-plain">
                 <table>
-                  <thead><tr><th>Order</th><th>Delivery</th><th>Work</th><th>Status</th>{finance && <><th className="right">Agreed</th><th className="right">Paid</th></>}</tr></thead>
+                  <thead><tr><th>Order</th><th>Delivery</th><th>Work</th><th>Status</th><th>Rating</th>{finance && <><th className="right">Agreed</th><th className="right">Paid</th></>}</tr></thead>
                   <tbody>
                     {partner.jobs.map((job) => (
                       <tr key={job.id}>
@@ -70,6 +73,7 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
                         <td className="num">{formatDate(job.delivery_date)}<small>{job.city}</small></td>
                         <td>{job.description}</td>
                         <td><Badge tone={job.status === "delivered" ? "sage" : job.status === "cancelled" ? "ribbon" : "gold"}>{titleCase(job.status)}</Badge></td>
+                        <td>{job.stars ? <Stars score={{ stars: job.stars, count: 0 }} /> : <small>—</small>}</td>
                         {finance && <><td className="right"><Money value={job.agreed_amount} /></td><td className="right"><Money value={job.paid} /></td></>}
                       </tr>
                     ))}
@@ -78,6 +82,23 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
               </div>
             )}
           </section>
+
+          {reviews.length > 0 && (
+            <section className="card">
+              <h2>What we said after each order</h2>
+              <div className="list">
+                {reviews.map((job) => (
+                  <div key={job.id} style={{ alignItems: "flex-start" }}>
+                    <div>
+                      <Stars score={{ stars: job.stars!, count: 0 }} />
+                      {job.rating_comment && <p style={{ margin: "4px 0 0" }}>“{job.rating_comment}”</p>}
+                      <small><Link className="link" href={`/orders/${job.order_id}`}>{job.order_number}</Link> · {job.recipient_name} · {formatDate(job.delivery_date)}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {finance && (
             <section className="card">
@@ -139,7 +160,7 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
             <dl className="kv">
               <dt>Phone</dt><dd>{partner.phone || "—"}</dd>
               <dt>Services</dt><dd>{partner.services.join(", ") || "—"}</dd>
-              <dt>Rating</dt><dd>{partner.rating ? "★".repeat(partner.rating) : "Not rated"}</dd>
+              <dt>Manual rating</dt><dd>{partner.rating ? "★".repeat(partner.rating) : "—"}</dd>
               <dt>Address</dt><dd style={{ whiteSpace: "pre-wrap" }}>{partner.address || "—"}</dd>
               {finance && <><dt>Bank</dt><dd style={{ whiteSpace: "pre-wrap" }}>{partner.bank_details || "—"}</dd></>}
               <dt>Notes</dt><dd style={{ whiteSpace: "pre-wrap" }}>{partner.notes || "—"}</dd>

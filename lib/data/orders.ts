@@ -78,11 +78,12 @@ export async function getOrder(id: string) {
   const [items, jobs, payments, expenses, documents, media] = await Promise.all([
     sql<{ id: string; description: string; quantity: number; unit_price: number }[]>`
       select id, description, quantity, unit_price from order_items where order_id = ${id} order by sort_order, id`,
-    sql<{ id: string; partner_id: string; partner_name: string; partner_phone: string; partner_city: string; description: string; agreed_amount: number; status: string; paid: number; share_token: string | null }[]>`
+    sql<{ id: string; partner_id: string; partner_name: string; partner_phone: string; partner_city: string; description: string; agreed_amount: number; status: string; paid: number; share_token: string | null; stars: number | null; rating_comment: string | null }[]>`
       select j.id, j.partner_id, p.name as partner_name, p.phone as partner_phone, p.city as partner_city, j.description,
         j.agreed_amount, j.status, j.share_token,
-        coalesce((select sum(amount) from partner_payments where job_id = j.id and voided_at is null), 0) as paid
-      from partner_jobs j join partners p on p.id = j.partner_id where j.order_id = ${id} order by j.created_at`,
+        coalesce((select sum(amount) from partner_payments where job_id = j.id and voided_at is null), 0) as paid,
+        r.stars, r.comment as rating_comment
+      from partner_jobs j join partners p on p.id = j.partner_id left join partner_ratings r on r.job_id = j.id where j.order_id = ${id} order by j.created_at`,
     sql<{ id: string; amount: number; method: string; reference: string; received_on: string; status: string; notes: string; proof_key: string | null; reversal_reason: string | null; receipt_id: string | null }[]>`
       select cp.id, cp.amount, cp.method, cp.reference, cp.received_on, cp.status, cp.notes, cp.proof_key, cp.reversal_reason,
         (select d.id from documents d where d.payment_id = cp.id and d.status <> 'void' order by d.created_at desc limit 1) as receipt_id
