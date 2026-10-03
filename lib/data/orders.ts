@@ -117,8 +117,8 @@ export async function dashboardSummary(month: string) {
       (select coalesce(sum(amount), 0) from customer_payments where status = 'pending') as pending_verification,
       (select coalesce(sum(greatest(balance, 0)), 0) from partner_balances) as partners_owed,
       (select coalesce(sum(greatest(-balance, 0)), 0) from partner_balances) as partner_advances,
-      (select coalesce(sum(s.profit), 0) from order_summary s join orders o on o.id = s.order_id where o.status not in ('enquiry') and s.month = ${`${month}-01`}::date) as month_profit,
-      (select count(*)::int from order_summary s join orders o on o.id = s.order_id where o.status not in ('enquiry','cancelled') and s.month = ${`${month}-01`}::date) as month_orders
+      (select coalesce(sum(s.profit), 0) from order_summary s join orders o on o.id = s.order_id where o.status in ('delivered', 'completed', 'cancelled') and s.month = ${`${month}-01`}::date) as month_profit,
+      (select count(*)::int from order_summary s join orders o on o.id = s.order_id where o.status in ('delivered', 'completed') and s.month = ${`${month}-01`}::date) as month_orders
   `;
   return { counts, money };
 }

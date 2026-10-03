@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { costPerOrder, monthNetProfit, splitProfit } from "@/lib/money";
+import { FINISHED_STATUSES } from "@/lib/constants";
 import { getSettings } from "@/lib/data/settings";
 
 const firstOf = (month: string) => `${month}-01`;
@@ -8,13 +9,23 @@ const firstOf = (month: string) => `${month}-01`;
 export async function monthReport(month: string) {
   const sql = db();
   const start = firstOf(month);
+  const finished = sql(FINISHED_STATUSES);
   const [[orders], [expenses], [cash], [closed], byCategory, settings, [stock]] = await Promise.all([
-    sql<{ revenue: number; partner_costs: number; order_expenses: number; stock_costs: number; orders: number; delivered: number; cancelled: number }[]>`
-      select coalesce(sum(s.revenue), 0) as revenue, coalesce(sum(s.partner_costs), 0) as partner_costs,
-        coalesce(sum(s.order_expenses), 0) as order_expenses, coalesce(sum(s.stock_costs), 0) as stock_costs,
+    // Only finished orders (delivered, completed, cancelled) count towards profit.
+    // Orders still to deliver are reported separately: their costs aren't all in yet.
+    sql<{ revenue: number; partner_costs: number; order_expenses: number; stock_costs: number; orders: number; delivered: number; cancelled: number;
+          open_orders: number; open_numbers: string[]; open_revenue: number; open_costs: number }[]>`
+      select coalesce(sum(s.revenue) filter (where o.status in ${finished}), 0) as revenue,
+        coalesce(sum(s.partner_costs) filter (where o.status in ${finished}), 0) as partner_costs,
+        coalesce(sum(s.order_expenses) filter (where o.status in ${finished}), 0) as order_expenses,
+        coalesce(sum(s.stock_costs) filter (where o.status in ${finished}), 0) as stock_costs,
         count(*) filter (where o.status <> 'cancelled')::int as orders,
         count(*) filter (where o.status in ('delivered', 'completed'))::int as delivered,
-        count(*) filter (where o.status = 'cancelled')::int as cancelled
+        count(*) filter (where o.status = 'cancelled')::int as cancelled,
+        count(*) filter (where o.status not in ${finished})::int as open_orders,
+        coalesce(array_agg(o.number order by o.delivery_date nulls last, o.number) filter (where o.status not in ${finished}), '{}') as open_numbers,
+        coalesce(sum(s.revenue) filter (where o.status not in ${finished}), 0) as open_revenue,
+        coalesce(sum(s.partner_costs + s.order_expenses + s.stock_costs) filter (where o.status not in ${finished}), 0) as open_costs
       from order_summary s join orders o on o.id = s.order_id
       where o.status <> 'enquiry' and s.month = ${start}::date`,
     sql<{ business_expenses: number; ad_spend: number }[]>`
@@ -62,6 +73,8 @@ export async function monthReport(month: string) {
     orders: orders.orders,
     delivered: orders.delivered,
     cancelled: orders.cancelled,
+    /** Orders this month that aren't delivered or cancelled yet: not in profit. */
+    open: { orders: orders.open_orders, numbers: orders.open_numbers, revenue: orders.open_revenue, costsSoFar: orders.open_costs },
     adSpend: expenses.ad_spend,
     costPerOrder: costPerOrder(expenses.ad_spend, orders.orders),
     cash: { in: cash.money_in, out: cash.paid_partners + cash.paid_expenses + cash.stock_bought, paidPartners: cash.paid_partners, paidExpenses: cash.paid_expenses, stockBought: cash.stock_bought },
@@ -71,7 +84,8 @@ export async function monthReport(month: string) {
 }
 
 export async function monthlyTrend(months = 12) {
-  return db()<{ month: string; revenue: number; commission: number; business_expenses: number; ad_spend: number; orders: number }[]>`
+  const sql = db();
+  return sql<{ month: string; revenue: number; commission: number; business_expenses: number; ad_spend: number; orders: number }[]>`
     with m as (
       select generate_series(date_trunc('month', now() at time zone 'Asia/Colombo') - make_interval(months => ${months - 1}),
                              date_trunc('month', now() at time zone 'Asia/Colombo'), interval '1 month')::date as month
@@ -81,7 +95,8 @@ export async function monthlyTrend(months = 12) {
       coalesce(e.business_expenses, 0) + coalesce(w.written_off, 0) as business_expenses, coalesce(e.ad_spend, 0) as ad_spend, coalesce(o.orders, 0) as orders
     from m
     left join (
-      select s.month, sum(s.revenue) as revenue, sum(s.profit) as commission, count(*) filter (where o.status <> 'cancelled')::int as orders
+      select s.month, sum(s.revenue) filter (where o.status in ${sql(FINISHED_STATUSES)}) as revenue,
+        sum(s.profit) filter (where o.status in ${sql(FINISHED_STATUSES)}) as commission, count(*) filter (where o.status <> 'cancelled')::int as orders
       from order_summary s join orders o on o.id = s.order_id where o.status <> 'enquiry' group by s.month
     ) o on o.month = m.month
     left join (

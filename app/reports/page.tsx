@@ -33,7 +33,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
   return (
     <AppShell permission="finance">
-      <PageHeader eyebrow="Reports" title="How the business is doing" description="Profit counts orders in the month they're delivered. Business costs count in the month they're spent." />
+      <PageHeader eyebrow="Reports" title="How the business is doing" description="Profit counts orders once they're delivered, in the month of their delivery date. Business costs count in the month they're spent." />
 
       <form className="filters" action="/reports">
         <label className="field"><span>Month</span><input type="month" name="month" defaultValue={month} /></label>
@@ -48,7 +48,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             {report.closedAt ? <span className="badge sage">Closed {formatDate(report.closedAt)}</span> : <span className="badge gold">Open — can still change</span>}
           </div>
           <div className="money-lines">
-            <div><span>Sales ({report.orders} orders)</span><Money value={report.figures.revenue} /></div>
+            <div><span>Sales ({report.delivered} delivered{report.cancelled ? `, ${report.cancelled} cancelled` : ""})</span><Money value={report.figures.revenue} /></div>
             <div><span>Paid / owed to partners</span><Money value={-report.figures.partnerCosts} /></div>
             <div><span>Extra order costs</span><Money value={-report.figures.orderExpenses} /></div>
             {report.figures.stockCosts > 0 && <div><span>Stock used on orders</span><Money value={-report.figures.stockCosts} /></div>}
@@ -57,6 +57,13 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             {report.figures.stockWrittenOff > 0 && <div><span>Stock written off</span><Money value={-report.figures.stockWrittenOff} /></div>}
             <div className={`total ${report.netProfit >= 0 ? "profit" : "loss"}`}><span>Net profit</span><Money value={report.netProfit} /></div>
           </div>
+          {report.open.orders > 0 && (
+            <p className="notice warn" style={{ marginTop: 12 }}>
+              Not counted yet: {report.open.orders} order{report.open.orders === 1 ? "" : "s"} still to deliver ({report.open.numbers.join(", ")}) —
+              sales <Money value={report.open.revenue} />, costs entered so far <Money value={report.open.costsSoFar} />.
+              {" "}They join the profit once delivered, with all their costs entered.
+            </p>
+          )}
           <div className="split" style={{ marginTop: 16 }}>
             <div><small>{report.split.ownerLabel} · {report.split.ownerPercent}%</small><strong>{formatMoney(report.split.owner)}</strong></div>
             <div><small>{report.split.partnerLabel} · {100 - report.split.ownerPercent}%</small><strong>{formatMoney(report.split.partner)}</strong></div>
@@ -70,11 +77,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
         <div className="stack">
           <div className="stats" style={{ marginBottom: 0 }}>
-            <Stat label="Orders" value={report.orders} note={`${report.delivered} delivered · ${report.cancelled} cancelled`} />
+            <Stat label="Orders" value={report.orders} note={`${report.delivered} delivered · ${report.open.orders} to deliver · ${report.cancelled} cancelled`} />
             <Stat label="Meta ad spend" value={<Money value={report.adSpend} />} />
             <Stat label="Ad cost per order" value={report.costPerOrder === null ? "—" : <Money value={report.costPerOrder} />} note="Ad spend ÷ orders" />
             <Stat label="Stock on hand" value={<Money value={report.stockOnHand} />} note={<Link className="link" href="/stock">Bought, not used yet →</Link>} />
-            <Stat label="Avg commission" value={report.orders ? <Money value={Math.round(report.commission / report.orders)} /> : "—"} note="per order" />
+            <Stat label="Avg commission" value={report.delivered ? <Money value={Math.round(report.commission / report.delivered)} /> : "—"} note="per delivered order" />
           </div>
           <section className="card">
             <h2>Cash this month</h2>

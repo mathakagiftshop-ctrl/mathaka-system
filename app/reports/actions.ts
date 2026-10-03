@@ -15,6 +15,9 @@ export const closeMonth = formAction(monthSchema, async ({ month }, user) => {
   if (month >= currentMonth()) throw new UserError("You can only close a month after it has ended.");
   const report = await monthReport(month);
   if (report.closedAt) throw new UserError("That month is already closed.");
+  if (report.open.orders > 0) {
+    throw new UserError(`${report.open.numbers.join(", ")} ${report.open.orders === 1 ? "isn't" : "aren't"} delivered yet. Mark ${report.open.orders === 1 ? "it" : "them"} delivered or cancelled (or move the delivery date) before closing.`);
+  }
   await db()`
     insert into month_closes (month, revenue, partner_costs, order_expenses, business_expenses, net_profit,
       owner_label, partner_label, owner_percent, owner_share, partner_share, closed_by, stock_costs, stock_written_off)

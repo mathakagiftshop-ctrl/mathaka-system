@@ -45,7 +45,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         <Stat label="Active orders" value={counts.active} tone="dark" note={counts.undated ? `${counts.undated} without a date` : undefined} />
         {finance && <Stat label="Customers owe" value={<Money value={money.customer_owes} />} note={money.pending_verification ? `+ ${money.pending_verification.toLocaleString("en-LK")} to verify` : undefined} />}
         {finance && <Stat label="We owe partners" value={<Money value={money.partners_owed} />} note={money.partner_advances ? `${money.partner_advances.toLocaleString("en-LK")} advanced` : undefined} />}
-        {finance && <Stat label={`${monthLabel(month)} commission`} value={<Money value={money.month_profit} />} note={`${money.month_orders} orders · before ads`} tone="good" />}
+        {finance && <Stat label={`${monthLabel(month)} commission`} value={<Money value={money.month_profit} />} note={`${money.month_orders} delivered · before ads`} tone="good" />}
       </div>
 
       <div className="grid two">

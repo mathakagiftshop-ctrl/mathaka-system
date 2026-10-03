@@ -12,6 +12,8 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number]["value"];
 export const ORDER_STATUS_VALUES = ORDER_STATUSES.map((status) => status.value) as [OrderStatus, ...OrderStatus[]];
 export const ACTIVE_STATUSES: OrderStatus[] = ["confirmed", "in_progress", "out_for_delivery", "delivered"];
 export const DONE_STATUSES: OrderStatus[] = ["delivered", "completed"];
+/** Orders whose money is final, so they count towards a month's profit. */
+export const FINISHED_STATUSES: OrderStatus[] = [...DONE_STATUSES, "cancelled"];
 
 export function statusInfo(value: string) {
   return ORDER_STATUSES.find((status) => status.value === value) ?? ORDER_STATUSES[0];
