@@ -26,6 +26,8 @@ export type Settings = {
   split_owner_label: string;
   split_partner_label: string;
   split_owner_percent: number;
+  meta_synced_at: Date | null;
+  meta_sync_error: string | null;
 };
 
 export const getSettings = cache(async () => {

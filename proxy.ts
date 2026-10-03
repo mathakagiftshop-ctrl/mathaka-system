@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Optimistic check only: send visitors without a session cookie to /login.
 // Every page and action verifies the session against the database itself.
-const PUBLIC = ["/login", "/i/", "/p/", "/g/"];
+const PUBLIC = ["/login", "/i/", "/p/", "/g/", "/api/cron/"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
