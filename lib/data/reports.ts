@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { costPerOrder, monthNetProfit, splitProfit } from "@/lib/money";
 import { FINISHED_STATUSES } from "@/lib/constants";
 import { getSettings } from "@/lib/data/settings";
+import { returningOrder } from "@/lib/data/orders";
 
 const firstOf = (month: string) => `${month}-01`;
 
@@ -14,7 +15,8 @@ export async function monthReport(month: string) {
     // Only finished orders (delivered, completed, cancelled) count towards profit.
     // Orders still to deliver are reported separately: their costs aren't all in yet.
     sql<{ revenue: number; partner_costs: number; order_expenses: number; stock_costs: number; orders: number; delivered: number; cancelled: number;
-          open_orders: number; open_numbers: string[]; open_revenue: number; open_costs: number }[]>`
+          open_orders: number; open_numbers: string[]; open_revenue: number; open_costs: number;
+          new_orders: number; repeat_orders: number; new_commission: number; repeat_commission: number }[]>`
       select coalesce(sum(s.revenue) filter (where o.status in ${finished}), 0) as revenue,
         coalesce(sum(s.partner_costs) filter (where o.status in ${finished}), 0) as partner_costs,
         coalesce(sum(s.order_expenses) filter (where o.status in ${finished}), 0) as order_expenses,
@@ -25,8 +27,13 @@ export async function monthReport(month: string) {
         count(*) filter (where o.status not in ${finished})::int as open_orders,
         coalesce(array_agg(o.number order by o.delivery_date nulls last, o.number) filter (where o.status not in ${finished}), '{}') as open_numbers,
         coalesce(sum(s.revenue) filter (where o.status not in ${finished}), 0) as open_revenue,
-        coalesce(sum(s.partner_costs + s.order_expenses + s.stock_costs) filter (where o.status not in ${finished}), 0) as open_costs
+        coalesce(sum(s.partner_costs + s.order_expenses + s.stock_costs) filter (where o.status not in ${finished}), 0) as open_costs,
+        count(*) filter (where o.status <> 'cancelled' and not r.returning)::int as new_orders,
+        count(*) filter (where o.status <> 'cancelled' and r.returning)::int as repeat_orders,
+        coalesce(sum(s.profit) filter (where o.status in ${finished} and not r.returning), 0) as new_commission,
+        coalesce(sum(s.profit) filter (where o.status in ${finished} and r.returning), 0) as repeat_commission
       from order_summary s join orders o on o.id = s.order_id
+      cross join lateral (select ${returningOrder(sql)} as returning) r
       where o.status <> 'enquiry' and s.month = ${start}::date`,
     sql<{ business_expenses: number; ad_spend: number }[]>`
       select coalesce(sum(amount) filter (where order_id is null), 0) as business_expenses,
@@ -76,7 +83,18 @@ export async function monthReport(month: string) {
     /** Orders this month that aren't delivered or cancelled yet: not in profit. */
     open: { orders: orders.open_orders, numbers: orders.open_numbers, revenue: orders.open_revenue, costsSoFar: orders.open_costs },
     adSpend: expenses.ad_spend,
-    costPerOrder: costPerOrder(expenses.ad_spend, orders.orders),
+    /**
+     * New vs repeat customers. Ad spend is a business cost, never taken off one order,
+     * so a repeat order keeps its full commission. Ads only win new customers, so the
+     * true ad cost is spend ÷ new-customer orders.
+     */
+    customers: {
+      newOrders: orders.new_orders,
+      repeatOrders: orders.repeat_orders,
+      newCommission: orders.new_commission,
+      repeatCommission: orders.repeat_commission,
+      adCostPerNewOrder: costPerOrder(expenses.ad_spend, orders.new_orders),
+    },
     cash: { in: cash.money_in, out: cash.paid_partners + cash.paid_expenses + cash.stock_bought, paidPartners: cash.paid_partners, paidExpenses: cash.paid_expenses, stockBought: cash.stock_bought },
     stockOnHand: stock.on_hand_value,
     byCategory,

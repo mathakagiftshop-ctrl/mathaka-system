@@ -58,6 +58,50 @@ export async function listOrders(options: { view?: OrderView; q?: string; city?:
   `;
 }
 
+/**
+ * SQL test for "this order `o` is from a repeat customer": the same customer had an
+ * earlier order that went ahead. Repeat orders weren't brought in by an ad.
+ */
+export function returningOrder(sql: ReturnType<typeof db>) {
+  return sql`exists (
+    select 1 from orders e where e.customer_id = o.customer_id and e.id <> o.id and e.status not in ('enquiry', 'cancelled')
+      and (e.created_at, e.id) < (o.created_at, o.id)
+  )`;
+}
+
+export type CalendarOrder = {
+  id: string;
+  number: string;
+  status: OrderStatus;
+  recipient_name: string;
+  city: string;
+  occasion: string;
+  delivery_date: string;
+  delivery_time: string;
+  total: number;
+  /** The customer had an earlier order that went ahead, so no ad brought this one. */
+  returning: boolean;
+};
+
+/** Orders delivering between two dates (inclusive), for the calendar. Enquiries are left out. */
+export async function calendarOrders(from: string, to: string) {
+  const sql = db();
+  return sql<CalendarOrder[]>`
+    select o.id, o.number, o.status, o.recipient_name, o.city, o.occasion, o.delivery_date::text as delivery_date, o.delivery_time, s.total,
+      ${returningOrder(sql)} as returning
+    from orders o join order_summary s on s.order_id = o.id
+    where o.status <> 'enquiry' and o.delivery_date between ${from}::date and ${to}::date
+    order by o.delivery_date, o.delivery_time, o.number
+  `;
+}
+
+/** Confirmed orders with no delivery date yet: they can't go on the calendar. */
+export async function undatedOrders() {
+  return db()<{ id: string; number: string; recipient_name: string; city: string }[]>`
+    select id, number, recipient_name, city from orders
+    where delivery_date is null and status in ('confirmed', 'in_progress', 'out_for_delivery') order by created_at`;
+}
+
 export type OrderDetail = Awaited<ReturnType<typeof getOrder>>;
 
 export async function getOrder(id: string) {

@@ -79,10 +79,25 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <div className="stats" style={{ marginBottom: 0 }}>
             <Stat label="Orders" value={report.orders} note={`${report.delivered} delivered · ${report.open.orders} to deliver · ${report.cancelled} cancelled`} />
             <Stat label="Meta ad spend" value={<Money value={report.adSpend} />} />
-            <Stat label="Ad cost per order" value={report.costPerOrder === null ? "—" : <Money value={report.costPerOrder} />} note="Ad spend ÷ orders" />
+            <Stat label="Ad cost per new customer" value={report.customers.adCostPerNewOrder === null ? "—" : <Money value={report.customers.adCostPerNewOrder} />}
+              note={`Ad spend ÷ ${report.customers.newOrders} new-customer order${report.customers.newOrders === 1 ? "" : "s"}`} />
             <Stat label="Stock on hand" value={<Money value={report.stockOnHand} />} note={<Link className="link" href="/stock">Bought, not used yet →</Link>} />
             <Stat label="Avg commission" value={report.delivered ? <Money value={Math.round(report.commission / report.delivered)} /> : "—"} note="per delivered order" />
           </div>
+          <section className="card">
+            <h2>New vs repeat customers</h2>
+            <p className="muted" style={{ fontSize: 13, margin: "4px 0 10px" }}>
+              Repeat = the customer already had an order with us. Ads are a business cost for the whole month, so repeat orders carry no ad cost — their commission is all yours.
+            </p>
+            <div className="money-lines">
+              <div><span>New customers ({report.customers.newOrders} order{report.customers.newOrders === 1 ? "" : "s"})</span><Money value={report.customers.newCommission} /></div>
+              {report.adSpend > 0 && <div><span>− Meta ads to win them</span><Money value={-report.adSpend} /></div>}
+              {report.adSpend > 0 && <div className="total"><span>New customers after ads</span><Money value={report.customers.newCommission - report.adSpend} tone="auto" /></div>}
+              <div style={{ marginTop: 6 }}><span>Repeat customers ({report.customers.repeatOrders} order{report.customers.repeatOrders === 1 ? "" : "s"}) · no ad cost</span><Money value={report.customers.repeatCommission} tone="auto" /></div>
+            </div>
+            <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>Commission from delivered orders only.{" "}
+              <Link className="link" href="/customers?repeat=1">See repeat customers →</Link></p>
+          </section>
           <section className="card">
             <h2>Cash this month</h2>
             <div className="money-lines">

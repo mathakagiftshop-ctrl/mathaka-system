@@ -116,7 +116,8 @@ export function OrderForm({ customers, order, prefill }: { customers: Customer[]
         <h2>Notes</h2>
         <div className="form-grid">
           {!order && <Select label="Status" name="status" defaultValue="confirmed" options={ORDER_STATUSES.filter((status) => ["enquiry", "confirmed"].includes(status.value))} hint="Enquiry = not confirmed yet." />}
-          <Select label="Where did the order come from?" name="source" defaultValue={initial?.source ?? "facebook_ad"} options={ORDER_SOURCES} />
+          <Select key={initial?.source ? "saved" : mode} label="Where did the order come from?" name="source"
+            defaultValue={initial?.source ?? (mode === "existing" ? "repeat" : "facebook_ad")} options={ORDER_SOURCES} />
           <TextArea label="Special request / cake message" name="special_request" className="full" defaultValue={initial?.special_request} />
           <TextArea label="Internal notes (not shown to customer)" name="internal_notes" className="full" defaultValue={initial?.internal_notes} />
         </div>

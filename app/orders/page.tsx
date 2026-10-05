@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { CalendarDays, Plus } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Empty, Money, PageHeader, StatusBadge } from "@/components/bits";
 import { can, requireUser } from "@/lib/auth";
@@ -34,7 +34,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         eyebrow="Orders"
         title="Every celebration"
         description="Search by name, phone, order number or city."
-        actions={<Link className="btn primary" href="/orders/new"><Plus size={16} />New order</Link>}
+        actions={<>
+          <Link className="btn" href="/orders/calendar"><CalendarDays size={16} />Calendar</Link>
+          <Link className="btn primary" href="/orders/new"><Plus size={16} />New order</Link>
+        </>}
       />
       <nav className="tabs" aria-label="Order views">
         {views.map((item) => (
