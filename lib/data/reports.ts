@@ -45,7 +45,7 @@ export async function monthReport(month: string) {
         (select coalesce(sum(amount), 0) from customer_payments where status = 'verified' and date_trunc('month', received_on) = ${start}::date) as money_in,
         (select coalesce(sum(amount), 0) from partner_payments where voided_at is null and date_trunc('month', paid_on) = ${start}::date) as paid_partners,
         (select coalesce(sum(amount), 0) from expenses where date_trunc('month', spent_on) = ${start}::date) as paid_expenses`,
-    sql<{ owner_percent: number; owner_label: string; partner_label: string; owner_share: number; partner_share: number; net_profit: number; closed_at: Date; revenue: number; partner_costs: number; order_expenses: number; business_expenses: number; stock_costs: number; stock_written_off: number }[]>`
+    sql<{ owner_percent: number; owner_label: string; partner_label: string; owner_share: number; partner_share: number; net_profit: number; closed_at: Date; revenue: number; partner_costs: number; order_expenses: number; business_expenses: number; stock_costs: number; stock_written_off: number; partner_paid_at: Date | null }[]>`
       select * from month_closes where month = ${start}::date`,
     sql<{ category: string; amount: number }[]>`
       select category, sum(amount) as amount from expenses where date_trunc('month', spent_on) = ${start}::date group by category order by amount desc`,
@@ -77,6 +77,7 @@ export async function monthReport(month: string) {
       partnerLabel: closed?.partner_label ?? settings.split_partner_label,
     },
     closedAt: closed?.closed_at ?? null,
+    sharePaidAt: closed?.partner_paid_at ?? null,
     orders: orders.orders,
     delivered: orders.delivered,
     cancelled: orders.cancelled,
@@ -99,6 +100,12 @@ export async function monthReport(month: string) {
     stockOnHand: stock.on_hand_value,
     byCategory,
   };
+}
+
+/** True once a month's numbers are fixed (closed by hand or by the payout cron). */
+export async function isMonthClosed(month: string) {
+  const [row] = await db()`select 1 from month_closes where month = ${firstOf(month)}::date`;
+  return Boolean(row);
 }
 
 export async function monthlyTrend(months = 12) {

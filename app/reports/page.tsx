@@ -4,12 +4,12 @@ import { AppShell } from "@/components/app-shell";
 import { Money, PageHeader, Stat } from "@/components/bits";
 import { ActionButton } from "@/components/form";
 import { SriLankaMap, type MapMarker } from "@/components/sri-lanka-map";
-import { closeMonth, reopenMonth } from "@/app/reports/actions";
+import { closeMonth, markSharePaid, reopenMonth, unmarkSharePaid } from "@/app/reports/actions";
 import { can, requireUser } from "@/lib/auth";
 import { findCity } from "@/lib/cities";
 import { expenseLabel } from "@/lib/constants";
-import { cityStats, monthReport, monthlyTrend, partnerLeaderboard, type CityStat } from "@/lib/data/reports";
-import { addDays, currentMonth, formatDate, formatMoney, monthLabel, today } from "@/lib/format";
+import { cityStats, isMonthClosed, monthReport, monthlyTrend, partnerLeaderboard, type CityStat } from "@/lib/data/reports";
+import { PAYOUT_DAY, addDays, addMonths, currentMonth, formatDate, formatMoney, monthLabel, payoutDate, today } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Reports & map" };
 
@@ -25,7 +25,12 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : currentMonth();
   const range = ranges.find((item) => item.value === params.range)?.value ?? "all";
   const since = range === "90" ? addDays(today(), -90) : range === "year" ? addDays(today(), -365) : null;
-  const [report, trend, cities, leaders] = await Promise.all([monthReport(month), monthlyTrend(12), cityStats(since), partnerLeaderboard(since)]);
+  // From the 20th, last month's share is due; it can't be paid until that month is closed.
+  const dueMonth = addMonths(currentMonth(), -1);
+  const shareDue = Number(today().slice(8)) >= PAYOUT_DAY;
+  const [report, trend, cities, leaders, dueClosed] = await Promise.all([
+    monthReport(month), monthlyTrend(12), cityStats(since), partnerLeaderboard(since), shareDue ? isMonthClosed(dueMonth) : true,
+  ]);
   const isPast = month < currentMonth();
   const completedTotal = cities.reduce((sum, city) => sum + city.completed, 0);
   const unmapped = cities.filter((city) => city.orders > 0 && !findCity(city.city));
@@ -34,6 +39,13 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   return (
     <AppShell permission="finance">
       <PageHeader eyebrow="Reports" title="How the business is doing" description="Profit counts orders once they're delivered, in the month of their delivery date. Business costs count in the month they're spent." />
+
+      {!dueClosed && (
+        <p className="notice warn" style={{ marginBottom: 16 }}>
+          {report.split.partnerLabel}&apos;s share for {monthLabel(dueMonth)} was due on {formatDate(payoutDate(dueMonth))}, but that month couldn&apos;t close yet.
+          {" "}<Link className="link" href={link({ month: dueMonth })}>See what&apos;s still open →</Link> It closes automatically each night once everything is delivered.
+        </p>
+      )}
 
       <form className="filters" action="/reports">
         <label className="field"><span>Month</span><input type="month" name="month" defaultValue={month} /></label>
@@ -68,9 +80,22 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             <div><small>{report.split.ownerLabel} · {report.split.ownerPercent}%</small><strong>{formatMoney(report.split.owner)}</strong></div>
             <div><small>{report.split.partnerLabel} · {100 - report.split.ownerPercent}%</small><strong>{formatMoney(report.split.partner)}</strong></div>
           </div>
+          {report.closedAt && (
+            <div className="money-lines" style={{ marginTop: 14 }}>
+              <div className="total">
+                <span>
+                  {report.split.partnerLabel}&apos;s payout · due {formatDate(payoutDate(month))}
+                  {report.sharePaidAt && <small style={{ display: "block" }}>Paid {formatDate(report.sharePaidAt)}</small>}
+                </span>
+                {report.split.partner > 0 ? <Money value={report.split.partner} /> : <span>Nothing to pay (loss)</span>}
+              </div>
+            </div>
+          )}
           <div className="row" style={{ marginTop: 14 }}>
+            {report.closedAt && !report.sharePaidAt && report.split.partner > 0 && <ActionButton action={markSharePaid} fields={{ month }} className="btn primary small" confirm={`Mark ${formatMoney(report.split.partner)} as paid to ${report.split.partnerLabel}?`}>Mark {report.split.partnerLabel} paid</ActionButton>}
+            {report.sharePaidAt && can(user, "settings") && <ActionButton action={unmarkSharePaid} fields={{ month }} className="btn small ghost" confirm="Undo this payment record?">Undo paid</ActionButton>}
             {!report.closedAt && isPast && <ActionButton action={closeMonth} fields={{ month }} className="btn primary small" confirm={`Close ${monthLabel(month)}? Its numbers and split will be fixed.`}>Close month & fix split</ActionButton>}
-            {!report.closedAt && !isPast && <small>Close the month after it ends to lock the split.</small>}
+            {!report.closedAt && !isPast && <small>Closes automatically on {formatDate(payoutDate(month))}, when {report.split.partnerLabel}&apos;s share is due. You can close it earlier once the month ends.</small>}
             {report.closedAt && can(user, "settings") && <ActionButton action={reopenMonth} fields={{ month }} className="btn small ghost" confirm="Reopen this month? Numbers will be recalculated.">Reopen month</ActionButton>}
           </div>
         </section>

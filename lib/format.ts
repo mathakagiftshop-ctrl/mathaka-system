@@ -31,6 +31,21 @@ export function monthLabel(month: string) {
   return formatDate(`${month}-01`, { day: undefined, month: "long", year: "numeric" });
 }
 
+/** 'YYYY-MM' shifted by whole months: addMonths('2026-01', -1) → '2025-12'. */
+export function addMonths(month: string, months: number) {
+  const [year, index] = month.split("-").map(Number);
+  const value = new Date(Date.UTC(year, index - 1 + months, 1));
+  return value.toISOString().slice(0, 7);
+}
+
+/** The profit share for a month is paid on this day of the following month. */
+export const PAYOUT_DAY = 20;
+
+/** 'YYYY-MM-DD' the share for `month` is due: September → 20 October. */
+export function payoutDate(month: string) {
+  return `${addMonths(month, 1)}-${String(PAYOUT_DAY).padStart(2, "0")}`;
+}
+
 export function addDays(date: string, days: number) {
   const value = new Date(`${date}T12:00:00Z`);
   value.setUTCDate(value.getUTCDate() + days);
