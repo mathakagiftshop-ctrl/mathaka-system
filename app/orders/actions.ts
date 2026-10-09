@@ -12,7 +12,7 @@ import { db, type Tx } from "@/lib/db";
 import { phoneDigits } from "@/lib/whatsapp";
 import { PROOF_TYPES, uploadFile, directUploadUrl } from "@/lib/storage";
 import { issueDocument, type DocumentRow } from "@/lib/data/documents";
-import { addDays, today } from "@/lib/format";
+import { addDays, formatMoney, today } from "@/lib/format";
 import { getSettings } from "@/lib/data/settings";
 import { unstable_rethrow } from "next/navigation";
 
@@ -169,16 +169,24 @@ export async function addPayment(_state: ActionState, formData: FormData): Promi
     const proofKey = proof instanceof File && proof.size > 0 ? await uploadFile(proof, `payments/${input.order_id}`, PROOF_TYPES) : null;
     const verified = input.verified === "on";
     if (input.bank_charges >= input.amount) throw new UserError("Bank charges must be less than the amount the customer sent.");
-    await db().begin(async (tx) => {
+    const overpaid = await db().begin(async (tx) => {
       await tx`
         insert into customer_payments (order_id, amount, method, reference, received_on, notes, proof_key, status, recorded_by, verified_by, verified_at)
         values (${input.order_id}, ${input.amount}, ${input.method}, ${input.reference}, ${input.received_on}, ${input.notes}, ${proofKey},
                 ${verified ? "verified" : "pending"}, ${user.id}, ${verified ? user.id : null}, ${verified ? new Date() : null})`;
       if (input.bank_charges > 0) await recordBankCharges(tx, input.order_id, input.bank_charges, input.received_on, user.id);
       await audit(user.id, "payment.recorded", "order", input.order_id, { amount: input.amount, bank_charges: input.bank_charges, verified }, tx);
+      // Counting pending money too, so the warning shows as soon as the payment is entered.
+      const [summary] = await tx<{ over: number }[]>`select paid + pending - total as over from order_summary where order_id = ${input.order_id}`;
+      return Number(summary?.over ?? 0);
     });
     touch(input.order_id);
-    return { ok: true, message: verified ? "Payment recorded. You can now issue a receipt." : "Payment saved as pending — verify it once it shows in the bank.", at: Date.now() };
+    const saved = verified ? "Payment recorded. You can now issue a receipt." : "Payment saved as pending — verify it once it shows in the bank.";
+    if (overpaid > 0) {
+      const currency = (await getSettings()).currency;
+      return { ok: true, message: `${saved} Heads up: the customer has now paid ${formatMoney(overpaid, currency)} more than the package price. If they added items, edit the order so the price matches.`, at: Date.now() };
+    }
+    return { ok: true, message: saved, at: Date.now() };
   } catch (error) {
     unstable_rethrow(error);
     return { error: errorMessage(error), at: Date.now() };

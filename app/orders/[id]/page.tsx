@@ -366,7 +366,15 @@ function MoneyCard({ order, currency }: { order: NonNullable<OrderDetail>; curre
         <div><span>Customer pays</span><Money value={order.total} currency={currency} /></div>
         <div><span>Received (verified)</span><Money value={order.paid} currency={currency} /></div>
         {order.pending > 0 && <div><span>Waiting to verify</span><Money value={order.pending} currency={currency} /></div>}
-        <div className="total"><span>Customer balance</span><Money value={order.balance} currency={currency} /></div>
+        {order.balance < 0
+          ? <div className="total loss"><span>Overpaid by</span><Money value={-order.balance} currency={currency} /></div>
+          : <div className="total"><span>Customer balance</span><Money value={order.balance} currency={currency} /></div>}
+        {order.balance < 0 && (
+          <p className="notice warn" style={{ margin: "4px 0 8px" }}>
+            The customer paid {formatMoney(-order.balance, currency)} more than the package price. If they asked for extra items,{" "}
+            <Link className="link" href={`/orders/${order.id}/edit`}>edit the order</Link> to add them (and raise our profit if needed) so the price matches what was paid.
+          </p>
+        )}
         <div style={{ marginTop: 8 }}><span>Partner costs</span><Money value={-order.partner_costs} currency={currency} /></div>
         {order.stock_costs > 0 && <div><span>Stock used</span><Money value={-order.stock_costs} currency={currency} /></div>}
         <div><span>Extra costs</span><Money value={-order.order_expenses} currency={currency} /></div>

@@ -33,6 +33,8 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
   ]);
   const publicUrl = doc.share_token ? `${site}/i/${doc.share_token}` : null;
   const label = DOCUMENT_LABELS[doc.kind];
+  // Issued quotes and invoices are frozen; flag when the order's price has changed since.
+  const outdated = doc.status === "issued" && doc.kind !== "receipt" && Number(snapshot.total) !== Number(live.total);
   const first = snapshot.customer.name.split(" ")[0];
   const amount = doc.kind === "receipt" ? snapshot.payment?.amount ?? 0 : Math.max(Math.min(snapshot.amountRequested ?? live.balance, live.balance), 0);
   const message = doc.kind === "receipt"
@@ -59,6 +61,12 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
         <DocumentPaper snapshot={snapshot} status={doc.status} logoUrl={logoUrl} live={live} />
 
         <aside className="stack no-print">
+          {outdated && (
+            <p className="notice warn">
+              The order&apos;s package price is now {formatMoney(live.total, snapshot.currency)}, but this {label.toLowerCase()} shows {formatMoney(snapshot.total, snapshot.currency)}.{" "}
+              <Link className="link" href={`/orders/${doc.order_id}`}>Create a new {label.toLowerCase()} from the order</Link> and void this one.
+            </p>
+          )}
           {doc.status === "draft" && (
             <>
               <section className="card">

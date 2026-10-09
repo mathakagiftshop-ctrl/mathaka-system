@@ -77,7 +77,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                   {finance && (
                     <>
                       <td className="right"><Money value={order.total} /></td>
-                      <td className="right">{order.balance > 0 ? <Money value={order.balance} /> : <small>Paid</small>}</td>
+                      <td className="right">{order.balance > 0 ? <Money value={order.balance} /> : order.balance < 0 ? <small style={{ color: "var(--ribbon-dark)" }}>Overpaid <Money value={-order.balance} /></small> : <small>Paid</small>}</td>
                       <td className="right"><Money value={order.profit} tone="auto" /></td>
                     </>
                   )}

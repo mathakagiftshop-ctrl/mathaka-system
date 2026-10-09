@@ -84,7 +84,7 @@ export async function getDocument(id: string) {
   if (!doc) return null;
   const [snapshot, [live]] = await Promise.all([
     doc.snapshot ?? buildSnapshot(sql, doc, null),
-    sql<{ paid: number; balance: number }[]>`select paid, balance from order_summary where order_id = ${doc.order_id}`,
+    sql<{ paid: number; balance: number; total: number }[]>`select paid, balance, total from order_summary where order_id = ${doc.order_id}`,
   ]);
   return { doc, snapshot, live };
 }
