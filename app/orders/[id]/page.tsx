@@ -10,7 +10,7 @@ import { MediaUploader } from "@/components/uploader";
 import { returnStock, addStockToOrder } from "@/app/stock/actions";
 import {
   addBankCharges, addOrderExpense, addPayment, assignPartner, createDocument, createReceipt, deleteMedia, finishOrderUpload,
-  payPartner, ratePartnerJob, reversePayment, setOrderStatus, shareGallery, sharePartnerJob, startOrderUpload, updateJob, verifyPayment,
+  payPartner, ratePartnerJob, reversePayment, setOrderStatus, shareGallery, setJobAmount, sharePartnerJob, startOrderUpload, updateJob, verifyPayment,
 } from "@/app/orders/actions";
 import { can, requireUser } from "@/lib/auth";
 import { EXPENSE_CATEGORIES, JOB_STATUSES, ORDER_SOURCES, ORDER_STATUSES, PAYMENT_METHODS, expenseLabel, methodLabel } from "@/lib/constants";
@@ -228,6 +228,20 @@ function Partners({ order, matches, allPartners, currency, finance, site }: {
                   <a className="btn small whatsapp" href={whatsappLink(job.partner_phone, message)} target="_blank" rel="noreferrer"><MessageCircle size={14} />Send job on WhatsApp</a>
                   {jobUrl ? <CopyButton text={jobUrl} label="Copy partner link" /> : <ActionButton action={sharePartnerJob} fields={{ job_id: job.id }}>Create partner link</ActionButton>}
                 </div>
+                {finance && (
+                  <details className="panel" style={{ marginTop: 10 }}>
+                    <summary>Change agreed amount</summary>
+                    <div className="panel-body">
+                      <ActionForm action={setJobAmount}>
+                        <input type="hidden" name="job_id" value={job.id} />
+                        <div className="form-grid">
+                          <Field label="Agreed amount (we pay them)" name="agreed_amount" type="number" min="0" step="0.01" required defaultValue={job.agreed_amount} />
+                        </div>
+                        <Submit>Save amount</Submit>
+                      </ActionForm>
+                    </div>
+                  </details>
+                )}
                 {finance && (
                   <details className="panel" style={{ marginTop: 10 }}>
                     <summary>Pay {job.partner_name}</summary>
