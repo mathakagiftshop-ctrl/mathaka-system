@@ -135,8 +135,10 @@ export const addStockToOrder = formAction(z.object({
   moved_on: requiredDate,
 }), async (input, user) => {
   const result = await db().begin(async (tx) => {
-    const [order] = await tx`select 1 from orders where id = ${input.order_id}`;
+    const [order] = await tx<{ month: string }[]>`select month from order_summary where order_id = ${input.order_id}`;
     if (!order) throw new UserError("That order doesn't exist.");
+    // A use counts in its order's month, so a closed month's figures would drift.
+    if (await monthClosed(tx, order.month)) throw new UserError("This order's month is closed. Reopen it in Reports first.");
     const move = await takeOut(tx, { itemId: input.item_id, quantity: input.quantity, kind: "used", orderId: input.order_id, movedOn: input.moved_on, notes: "", userId: user.id });
     await audit(user.id, "stock.used", "order", input.order_id, { item_id: input.item_id, quantity: input.quantity, cost: move.cost }, tx);
     return move;
