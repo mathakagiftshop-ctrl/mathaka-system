@@ -85,6 +85,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
 
 function StatusSteps({ order }: { order: NonNullable<OrderDetail> }) {
   const flow = ORDER_STATUSES.filter((status) => status.value !== "cancelled");
+  const openJobs = order.jobs.filter((job) => ["assigned", "accepted", "ready"].includes(job.status)).length;
   const currentIndex = flow.findIndex((status) => status.value === order.status);
   return (
     <div className="status-steps" aria-label="Order status">
@@ -95,7 +96,7 @@ function StatusSteps({ order }: { order: NonNullable<OrderDetail> }) {
         </ActionButton>
       ))}
       {order.status !== "cancelled"
-        ? <ActionButton action={setOrderStatus} fields={{ order_id: order.id, status: "cancelled" }} confirm="Cancel this order?">Cancel order</ActionButton>
+        ? <ActionButton action={setOrderStatus} fields={{ order_id: order.id, status: "cancelled" }} confirm={openJobs ? `Cancel this order? Its ${openJobs} open partner job${openJobs === 1 ? "" : "s"} will be cancelled too.` : "Cancel this order?"}>Cancel order</ActionButton>
         : <ActionButton action={setOrderStatus} fields={{ order_id: order.id, status: "confirmed" }} className="current">Cancelled — reopen</ActionButton>}
     </div>
   );
@@ -366,10 +367,17 @@ function MoneyCard({ order, currency }: { order: NonNullable<OrderDetail>; curre
         <div><span>Customer pays</span><Money value={order.total} currency={currency} /></div>
         <div><span>Received (verified)</span><Money value={order.paid} currency={currency} /></div>
         {order.pending > 0 && <div><span>Waiting to verify</span><Money value={order.pending} currency={currency} /></div>}
-        {order.balance < 0
+        {order.status === "cancelled"
+          ? <div className="total"><span>Kept (cancelled, non-refundable)</span><Money value={order.paid} currency={currency} /></div>
+          : order.balance < 0
           ? <div className="total loss"><span>Overpaid by</span><Money value={-order.balance} currency={currency} /></div>
           : <div className="total"><span>Customer balance</span><Money value={order.balance} currency={currency} /></div>}
-        {order.balance < 0 && (
+        {order.status === "cancelled" && (
+          <p className="notice info" style={{ margin: "4px 0 8px" }}>
+            Cancelled: the customer owes nothing more. Only the {formatMoney(order.paid, currency)} we kept counts as sales for this order.
+          </p>
+        )}
+        {order.status !== "cancelled" && order.balance < 0 && (
           <p className="notice warn" style={{ margin: "4px 0 8px" }}>
             The customer paid {formatMoney(-order.balance, currency)} more than the package price. If they asked for extra items,{" "}
             <Link className="link" href={`/orders/${order.id}/edit`}>edit the order</Link> to add them (and raise our profit if needed) so the price matches what was paid.

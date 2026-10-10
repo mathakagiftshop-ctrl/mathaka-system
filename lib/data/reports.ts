@@ -14,7 +14,7 @@ export async function monthReport(month: string) {
   const [[orders], [expenses], [cash], [closed], byCategory, settings, [stock]] = await Promise.all([
     // Only finished orders (delivered, completed, cancelled) count towards profit.
     // Orders still to deliver are reported separately: their costs aren't all in yet.
-    sql<{ revenue: number; partner_costs: number; order_expenses: number; stock_costs: number; orders: number; delivered: number; cancelled: number;
+    sql<{ revenue: number; partner_costs: number; order_expenses: number; stock_costs: number; orders: number; delivered: number; cancelled: number; cancelled_kept: number;
           open_orders: number; open_numbers: string[]; open_revenue: number; open_costs: number;
           new_orders: number; repeat_orders: number; new_commission: number; repeat_commission: number }[]>`
       select coalesce(sum(s.revenue) filter (where o.status in ${finished}), 0) as revenue,
@@ -24,6 +24,7 @@ export async function monthReport(month: string) {
         count(*) filter (where o.status <> 'cancelled')::int as orders,
         count(*) filter (where o.status in ('delivered', 'completed'))::int as delivered,
         count(*) filter (where o.status = 'cancelled')::int as cancelled,
+        coalesce(sum(s.revenue) filter (where o.status = 'cancelled'), 0) as cancelled_kept,
         count(*) filter (where o.status not in ${finished})::int as open_orders,
         coalesce(array_agg(o.number order by o.delivery_date nulls last, o.number) filter (where o.status not in ${finished}), '{}') as open_numbers,
         coalesce(sum(s.revenue) filter (where o.status not in ${finished}), 0) as open_revenue,
@@ -81,6 +82,8 @@ export async function monthReport(month: string) {
     orders: orders.orders,
     delivered: orders.delivered,
     cancelled: orders.cancelled,
+    /** Non-refundable advances kept from cancelled orders: already inside sales. */
+    cancelledKept: orders.cancelled_kept,
     /** Orders this month that aren't delivered or cancelled yet: not in profit. */
     open: { orders: orders.open_orders, numbers: orders.open_numbers, revenue: orders.open_revenue, costsSoFar: orders.open_costs },
     adSpend: expenses.ad_spend,

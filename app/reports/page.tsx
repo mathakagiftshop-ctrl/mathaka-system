@@ -61,6 +61,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           </div>
           <div className="money-lines">
             <div><span>Sales ({report.delivered} delivered{report.cancelled ? `, ${report.cancelled} cancelled` : ""})</span><Money value={report.figures.revenue} /></div>
+            {report.cancelledKept > 0 && <div><small>incl. kept from {report.cancelled} cancelled order{report.cancelled === 1 ? "" : "s"} (non-refundable advances)</small><small><Money value={report.cancelledKept} /></small></div>}
             <div><span>Paid / owed to partners</span><Money value={-report.figures.partnerCosts} /></div>
             <div><span>Extra order costs</span><Money value={-report.figures.orderExpenses} /></div>
             {report.figures.stockCosts > 0 && <div><span>Stock used on orders</span><Money value={-report.figures.stockCosts} /></div>}

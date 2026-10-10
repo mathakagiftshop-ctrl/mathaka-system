@@ -126,15 +126,30 @@ export const setOrderStatus = formAction(z.object({ order_id: uuid, status: z.en
     ].filter(Boolean);
     if (blockers.length) throw new UserError(`Can't complete yet: ${blockers.join(", ")}.`);
   }
-  await sql`
-    update orders set status = ${status}, updated_at = now(),
-      delivered_at = case when ${status} in ('delivered','completed') then coalesce(delivered_at, now()) else delivered_at end,
-      completed_at = case when ${status} = 'completed' then now() else null end,
-      cancelled_at = case when ${status} = 'cancelled' then now() else null end
-    where id = ${order_id}`;
-  await audit(user.id, "order.status", "order", order_id, { status });
+  // A cancelled order shouldn't keep partner costs in its profit, so its open
+  // partner jobs are cancelled with it. Delivered jobs stay: that work was done.
+  type StoppedJob = { id: string; partner_name: string; paid: number };
+  const stoppedJobs: StoppedJob[] = await sql.begin(async (tx) => {
+    await tx`
+      update orders set status = ${status}, updated_at = now(),
+        delivered_at = case when ${status} in ('delivered','completed') then coalesce(delivered_at, now()) else delivered_at end,
+        completed_at = case when ${status} = 'completed' then now() else null end,
+        cancelled_at = case when ${status} = 'cancelled' then now() else null end
+      where id = ${order_id}`;
+    const jobs: StoppedJob[] = status !== "cancelled" ? [] : [...await tx<StoppedJob[]>`
+      update partner_jobs j set status = 'cancelled' from partners p
+      where j.order_id = ${order_id} and p.id = j.partner_id and j.status in ('assigned', 'accepted', 'ready')
+      returning j.id, p.name as partner_name,
+        (select coalesce(sum(amount), 0) from partner_payments where job_id = j.id and voided_at is null) as paid`];
+    await audit(user.id, "order.status", "order", order_id, { status, cancelled_jobs: jobs.map((job) => job.id) }, tx);
+    return jobs;
+  });
   touch(order_id);
-  return "Status updated.";
+  if (!stoppedJobs.length) return "Status updated.";
+  const names = stoppedJobs.map((job) => job.partner_name).join(", ");
+  const advanced = stoppedJobs.filter((job) => Number(job.paid) > 0).map((job) => job.partner_name);
+  return `Order cancelled, and the partner job${stoppedJobs.length === 1 ? "" : "s"} for ${names} too.`
+    + (advanced.length ? ` ${advanced.join(", ")} already got an advance: it now shows as money they owe us. If they keep it for work already done, set their job back and change the agreed amount to what they keep.` : "");
 });
 
 // ---------------------------------------------------------------------------
