@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Money, PageHeader, Stat } from "@/components/bits";
-import { ActionButton } from "@/components/form";
+import { ActionButton, ActionForm, Field, Select, Submit } from "@/components/form";
 import { SriLankaMap, type MapMarker } from "@/components/sri-lanka-map";
-import { closeMonth, markSharePaid, reopenMonth, unmarkSharePaid } from "@/app/reports/actions";
+import { addShareAdvance, closeMonth, deleteShareAdvance, markSharePaid, reopenMonth, unmarkSharePaid } from "@/app/reports/actions";
 import { can, requireUser } from "@/lib/auth";
 import { findCity } from "@/lib/cities";
-import { expenseLabel } from "@/lib/constants";
-import { cityStats, isMonthClosed, monthReport, monthlyTrend, partnerLeaderboard, type CityStat } from "@/lib/data/reports";
+import { PAYMENT_METHODS, expenseLabel, methodLabel } from "@/lib/constants";
+import { cityStats, isMonthClosed, monthReport, monthlyTrend, partnerLeaderboard, shareAdvances, type CityStat } from "@/lib/data/reports";
+import { sharePayout } from "@/lib/money";
 import { PAYOUT_DAY, addDays, addMonths, currentMonth, formatDate, formatMoney, monthLabel, payoutDate, today } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Reports & map" };
@@ -28,10 +29,15 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   // From the 20th, last month's share is due; it can't be paid until that month is closed.
   const dueMonth = addMonths(currentMonth(), -1);
   const shareDue = Number(today().slice(8)) >= PAYOUT_DAY;
-  const [report, trend, cities, leaders, dueClosed] = await Promise.all([
-    monthReport(month), monthlyTrend(12), cityStats(since), partnerLeaderboard(since), shareDue ? isMonthClosed(dueMonth) : true,
+  const [report, trend, cities, leaders, dueClosed, advances] = await Promise.all([
+    monthReport(month), monthlyTrend(12), cityStats(since), partnerLeaderboard(since), shareDue ? isMonthClosed(dueMonth) : true, shareAdvances(),
   ]);
+  // Once paid, show what was actually taken off; until then, what would come off now.
+  const payout = report.sharePaidAt
+    ? { deducted: report.advancesDeducted, toPay: Math.max(report.split.partner, 0) - report.advancesDeducted }
+    : sharePayout(report.split.partner, advances.owed);
   const isPast = month < currentMonth();
+  const bridge = report.profitToCash;
   const completedTotal = cities.reduce((sum, city) => sum + city.completed, 0);
   const unmapped = cities.filter((city) => city.orders > 0 && !findCity(city.city));
   const link = (next: { month?: string; range?: string }) => `/reports?month=${next.month ?? month}&range=${next.range ?? range}`;
@@ -83,17 +89,23 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           </div>
           {report.closedAt && (
             <div className="money-lines" style={{ marginTop: 14 }}>
+              {payout.deducted > 0 && <>
+                <div><span>{report.split.partnerLabel}&apos;s share</span><Money value={report.split.partner} /></div>
+                <div><span>Advances already taken</span><Money value={-payout.deducted} /></div>
+              </>}
               <div className="total">
                 <span>
                   {report.split.partnerLabel}&apos;s payout · due {formatDate(payoutDate(month))}
                   {report.sharePaidAt && <small style={{ display: "block" }}>Paid {formatDate(report.sharePaidAt)}</small>}
                 </span>
-                {report.split.partner > 0 ? <Money value={report.split.partner} /> : <span>Nothing to pay (loss)</span>}
+                {report.split.partner > 0 ? <Money value={payout.toPay} /> : <span>Nothing to pay (loss)</span>}
               </div>
             </div>
           )}
           <div className="row" style={{ marginTop: 14 }}>
-            {report.closedAt && !report.sharePaidAt && report.split.partner > 0 && <ActionButton action={markSharePaid} fields={{ month }} className="btn primary small" confirm={`Mark ${formatMoney(report.split.partner)} as paid to ${report.split.partnerLabel}?`}>Mark {report.split.partnerLabel} paid</ActionButton>}
+            {report.closedAt && !report.sharePaidAt && report.split.partner > 0 && <ActionButton action={markSharePaid} fields={{ month }} className="btn primary small" confirm={payout.deducted > 0
+              ? `Mark ${report.split.partnerLabel}'s share paid? Hand over ${formatMoney(payout.toPay)}; ${formatMoney(payout.deducted)} comes off for advances.`
+              : `Mark ${formatMoney(report.split.partner)} as paid to ${report.split.partnerLabel}?`}>Mark {report.split.partnerLabel} paid</ActionButton>}
             {report.sharePaidAt && can(user, "settings") && <ActionButton action={unmarkSharePaid} fields={{ month }} className="btn small ghost" confirm="Undo this payment record?">Undo paid</ActionButton>}
             {!report.closedAt && isPast && <ActionButton action={closeMonth} fields={{ month }} className="btn primary small" confirm={`Close ${monthLabel(month)}? Its numbers and split will be fixed.`}>Close month & fix split</ActionButton>}
             {!report.closedAt && !isPast && <small>Closes automatically on {formatDate(payoutDate(month))}, when {report.split.partnerLabel}&apos;s share is due. You can close it earlier once the month ends.</small>}
@@ -110,6 +122,36 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             <Stat label="Stock on hand" value={<Money value={report.stockOnHand} />} note={<Link className="link" href="/stock">Bought, not used yet →</Link>} />
             <Stat label="Avg commission" value={report.delivered ? <Money value={Math.round(report.commission / report.delivered)} /> : "—"} note="per delivered order" />
           </div>
+          <section className="card">
+            <div className="card-head">
+              <h2>{report.split.partnerLabel}&apos;s advances</h2>
+              {advances.owed > 0 && <span className="badge gold">{formatMoney(advances.owed)} to take off</span>}
+            </div>
+            <p className="muted" style={{ fontSize: 13, margin: "4px 0 10px" }}>
+              Money {report.split.partnerLabel} takes before payday. It comes off the next payout when you mark it paid; anything the payout doesn&apos;t cover waits for the one after. Not a business cost, so profit doesn&apos;t change.
+            </p>
+            {advances.recent.length > 0 && (
+              <ul style={{ listStyle: "none", padding: 0, margin: "0 0 12px", fontSize: 13 }}>
+                {advances.recent.map((advance) => (
+                  <li key={advance.id} className="row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
+                    <span>{formatDate(advance.paid_on)} · <Money value={advance.amount} /><small>{methodLabel(advance.method)}{advance.note ? ` · ${advance.note}` : ""}</small></span>
+                    <ActionButton action={deleteShareAdvance} fields={{ advance_id: advance.id }} className="btn small ghost" confirm="Delete this advance?">Delete</ActionButton>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ActionForm action={addShareAdvance}>
+              <div className="form-grid">
+                <Field label="Amount" name="amount" type="number" min="1" step="0.01" required />
+                <Field label="Date" name="paid_on" type="date" defaultValue={today()} required />
+              </div>
+              <div className="form-grid">
+                <Select label="Paid by" name="method" options={PAYMENT_METHODS} defaultValue="cash" />
+                <Field label="Note" name="note" placeholder="Optional" />
+              </div>
+              <Submit>Record advance</Submit>
+            </ActionForm>
+          </section>
           <section className="card">
             <h2>New vs repeat customers</h2>
             <p className="muted" style={{ fontSize: 13, margin: "4px 0 10px" }}>
@@ -136,6 +178,26 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             {report.byCategory.length > 0 && (
               <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>
                 {report.byCategory.map((row) => `${expenseLabel(row.category)} ${formatMoney(row.amount)}`).join(" · ")}
+              </p>
+            )}
+          </section>
+          <section className="card">
+            <h2>Profit vs cash</h2>
+            <p className="muted" style={{ fontSize: 13, margin: "4px 0 10px" }}>
+              Profit counts stock when it&apos;s used and orders when they&apos;re delivered; cash counts money when it moves. This is why they differ.
+            </p>
+            <div className="money-lines">
+              <div><span>Net profit</span><Money value={bridge.profit} /></div>
+              {bridge.stock !== 0 && <div><span>{bridge.stock < 0 ? "Stock bought, not used yet" : "Stock used from earlier months"}</span><Money value={bridge.stock} /></div>}
+              {bridge.customers !== 0 && <div><span>{bridge.customers < 0 ? "Sales not collected yet" : "Collected ahead (advances, old balances)"}</span><Money value={bridge.customers} /></div>}
+              {bridge.partners !== 0 && <div><span>{bridge.partners > 0 ? "Owed to partners, not paid yet" : "Paid to partners ahead / for other months"}</span><Money value={bridge.partners} /></div>}
+              {bridge.expenses !== 0 && <div><span>{bridge.expenses > 0 ? "Order costs not paid this month" : "Order costs paid ahead / for other months"}</span><Money value={bridge.expenses} /></div>}
+              <div className="total"><span>Net cash</span><Money value={bridge.cash} tone="auto" /></div>
+            </div>
+            {bridge.stock < 0 && (
+              <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>
+                <Money value={-bridge.stock} /> of this month&apos;s profit is sitting on the shelf as stock, not cash. It comes back as those pieces are used on orders.
+                {" "}<Link className="link" href={`/stock?month=${month}`}>See stock →</Link>
               </p>
             )}
           </section>

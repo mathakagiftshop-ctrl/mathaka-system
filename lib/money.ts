@@ -50,6 +50,15 @@ export function splitProfit(netProfit: number, ownerPercent: number) {
   return { owner, partner: round(netProfit - owner) };
 }
 
+/**
+ * What to hand over for a profit share once advances already taken come off.
+ * Never deducts more than the share; the rest of the advances wait for the next payout.
+ */
+export function sharePayout(share: number, advancesOwed: number) {
+  const deducted = round(Math.min(Math.max(share, 0), Math.max(advancesOwed, 0)));
+  return { deducted, toPay: round(Math.max(share, 0) - deducted), carriedOver: round(Math.max(advancesOwed, 0) - deducted) };
+}
+
 export type MonthFigures = {
   revenue: number;
   partnerCosts: number;
@@ -64,6 +73,27 @@ export type MonthFigures = {
 export function monthNetProfit(figures: MonthFigures) {
   return round(figures.revenue - figures.partnerCosts - figures.orderExpenses - (figures.stockCosts ?? 0)
     - figures.businessExpenses - (figures.stockWrittenOff ?? 0));
+}
+
+export type MonthCash = { in: number; paidPartners: number; paidExpenses: number; stockBought: number };
+
+/**
+ * Why net profit and net cash differ for a month. Profit counts things when
+ * they're earned or used; cash counts them when money moves. Each gap is
+ * positive when it leaves more cash than profit:
+ * - stock: used/written off (in profit, paid for earlier) − bought (cash out, not in profit yet)
+ * - customers: money received − sales counted (advances for later orders, or still to collect)
+ * - partners: partner costs counted − paid to partners (still owed, or paid ahead)
+ * - expenses: expenses counted − expenses paid (order costs spent in another month)
+ * profit + the four gaps = net cash, always.
+ */
+export function profitToCash(figures: MonthFigures, cash: MonthCash) {
+  const profit = monthNetProfit(figures);
+  const stock = round((figures.stockCosts ?? 0) + (figures.stockWrittenOff ?? 0) - cash.stockBought);
+  const customers = round(cash.in - figures.revenue);
+  const partners = round(figures.partnerCosts - cash.paidPartners);
+  const expenses = round(figures.orderExpenses + figures.businessExpenses - cash.paidExpenses);
+  return { profit, stock, customers, partners, expenses, cash: round(profit + stock + customers + partners + expenses) };
 }
 
 /**

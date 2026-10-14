@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { costPerOrder, monthNetProfit, splitProfit } from "@/lib/money";
+import { costPerOrder, monthNetProfit, profitToCash, splitProfit } from "@/lib/money";
 import { FINISHED_STATUSES } from "@/lib/constants";
 import { getSettings } from "@/lib/data/settings";
 import { returningOrder } from "@/lib/data/orders";
@@ -46,7 +46,7 @@ export async function monthReport(month: string) {
         (select coalesce(sum(amount), 0) from customer_payments where status = 'verified' and date_trunc('month', received_on) = ${start}::date) as money_in,
         (select coalesce(sum(amount), 0) from partner_payments where voided_at is null and date_trunc('month', paid_on) = ${start}::date) as paid_partners,
         (select coalesce(sum(amount), 0) from expenses where date_trunc('month', spent_on) = ${start}::date) as paid_expenses`,
-    sql<{ owner_percent: number; owner_label: string; partner_label: string; owner_share: number; partner_share: number; net_profit: number; closed_at: Date; revenue: number; partner_costs: number; order_expenses: number; business_expenses: number; stock_costs: number; stock_written_off: number; partner_paid_at: Date | null }[]>`
+    sql<{ owner_percent: number; owner_label: string; partner_label: string; owner_share: number; partner_share: number; net_profit: number; closed_at: Date; revenue: number; partner_costs: number; order_expenses: number; business_expenses: number; stock_costs: number; stock_written_off: number; partner_paid_at: Date | null; advances_deducted: number }[]>`
       select * from month_closes where month = ${start}::date`,
     sql<{ category: string; amount: number }[]>`
       select category, sum(amount) as amount from expenses where date_trunc('month', spent_on) = ${start}::date group by category order by amount desc`,
@@ -79,6 +79,8 @@ export async function monthReport(month: string) {
     },
     closedAt: closed?.closed_at ?? null,
     sharePaidAt: closed?.partner_paid_at ?? null,
+    /** Advances taken off this month's share when it was marked paid. */
+    advancesDeducted: closed?.advances_deducted ?? 0,
     orders: orders.orders,
     delivered: orders.delivered,
     cancelled: orders.cancelled,
@@ -100,9 +102,23 @@ export async function monthReport(month: string) {
       adCostPerNewOrder: costPerOrder(expenses.ad_spend, orders.new_orders),
     },
     cash: { in: cash.money_in, out: cash.paid_partners + cash.paid_expenses + cash.stock_bought, paidPartners: cash.paid_partners, paidExpenses: cash.paid_expenses, stockBought: cash.stock_bought },
+    /** Net profit → net cash, gap by gap (stock, customers, partners, expenses). */
+    profitToCash: profitToCash(figures, { in: cash.money_in, paidPartners: cash.paid_partners, paidExpenses: cash.paid_expenses, stockBought: cash.stock_bought }),
     stockOnHand: stock.on_hand_value,
     byCategory,
   };
+}
+
+/** Advances on the profit share: still owed back (comes off the next payout), and the latest few. */
+export async function shareAdvances(limit = 12) {
+  const sql = db();
+  const [[balance], recent] = await Promise.all([
+    sql<{ owed: number }[]>`
+      select (select coalesce(sum(amount), 0) from share_advances) - (select coalesce(sum(advances_deducted), 0) from month_closes) as owed`,
+    sql<{ id: string; amount: number; paid_on: string; method: string; note: string }[]>`
+      select id, amount, paid_on, method, note from share_advances order by paid_on desc, created_at desc limit ${limit}`,
+  ]);
+  return { owed: balance.owed, recent };
 }
 
 /** True once a month's numbers are fixed (closed by hand or by the payout cron). */

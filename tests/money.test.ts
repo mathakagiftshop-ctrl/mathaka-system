@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceAmount, costPerOrder, customerBalance, itemsSubtotal, monthNetProfit, orderProfit, orderTotal, partnerBalance, plannedCost, round, splitProfit, stockOutCost, stockUnitCost } from "@/lib/money";
+import { advanceAmount, costPerOrder, customerBalance, itemsSubtotal, monthNetProfit, orderProfit, orderTotal, partnerBalance, plannedCost, profitToCash, round, sharePayout, splitProfit, stockOutCost, stockUnitCost } from "@/lib/money";
 
 describe("order totals", () => {
   it("adds items and delivery, subtracts discount", () => {
@@ -67,6 +67,30 @@ describe("month and ads", () => {
 
   it("stock used and written off come off net profit", () => {
     expect(monthNetProfit({ revenue: 300000, partnerCosts: 180000, orderExpenses: 12000, businessExpenses: 40000, stockCosts: 6000, stockWrittenOff: 2000 })).toBe(60000);
+  });
+
+  it("profit to cash: stock bought but not used leaves less cash than profit", () => {
+    // 5 frames bought for 10,000, 2 used (4,000). Everything else paid in the same month.
+    const bridge = profitToCash(
+      { revenue: 100000, partnerCosts: 60000, orderExpenses: 0, businessExpenses: 0, stockCosts: 4000 },
+      { in: 100000, paidPartners: 60000, paidExpenses: 0, stockBought: 10000 },
+    );
+    expect(bridge).toEqual({ profit: 36000, stock: -6000, customers: 0, partners: 0, expenses: 0, cash: 30000 });
+  });
+
+  it("profit to cash always lands on net cash", () => {
+    const cash = { in: 250000, paidPartners: 150000, paidExpenses: 45000, stockBought: 8000 };
+    const bridge = profitToCash({ revenue: 300000, partnerCosts: 180000, orderExpenses: 12000, businessExpenses: 40000, stockCosts: 6000, stockWrittenOff: 2000 }, cash);
+    expect(bridge.cash).toBe(cash.in - cash.paidPartners - cash.paidExpenses - cash.stockBought);
+    expect(bridge).toMatchObject({ profit: 60000, stock: 0, customers: -50000, partners: 30000, expenses: 7000 });
+  });
+
+  it("share payout takes advances off, carrying over what doesn't fit", () => {
+    expect(sharePayout(50000, 0)).toEqual({ deducted: 0, toPay: 50000, carriedOver: 0 });
+    expect(sharePayout(50000, 20000)).toEqual({ deducted: 20000, toPay: 30000, carriedOver: 0 });
+    expect(sharePayout(50000, 70000)).toEqual({ deducted: 50000, toPay: 0, carriedOver: 20000 });
+    // A loss month pays nothing and keeps all advances for later.
+    expect(sharePayout(-5000, 10000)).toEqual({ deducted: 0, toPay: 0, carriedOver: 10000 });
   });
 
   it("cost per order", () => {
