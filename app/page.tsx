@@ -6,13 +6,13 @@ import { can, requireUser } from "@/lib/auth";
 import { dashboardSummary, listOrders } from "@/lib/data/orders";
 import { unratedJobs } from "@/lib/data/partners";
 import { lowStock } from "@/lib/data/stock";
-import { addDays, currentMonth, formatDate, monthLabel, relativeDay, today } from "@/lib/format";
+import { addDays, currentPeriod, formatDate, monthLabel, periodRange, relativeDay, today } from "@/lib/format";
 
 export default async function TodayPage({ searchParams }: { searchParams: Promise<{ denied?: string }> }) {
   const { denied } = await searchParams;
   const user = await requireUser();
   const finance = can(user, "finance");
-  const month = currentMonth();
+  const month = currentPeriod();
   const [{ counts, money }, active, low, toRate] = await Promise.all([dashboardSummary(month), listOrders({ view: "active" }), finance ? lowStock() : [], unratedJobs(5)]);
   const date = today();
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: "Asia/Colombo" }).format(new Date()));
@@ -45,7 +45,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         <Stat label="Active orders" value={counts.active} tone="dark" note={counts.undated ? `${counts.undated} without a date` : undefined} />
         {finance && <Stat label="Customers owe" value={<Money value={money.customer_owes} />} note={money.pending_verification ? `+ ${money.pending_verification.toLocaleString("en-LK")} to verify` : undefined} />}
         {finance && <Stat label="We owe partners" value={<Money value={money.partners_owed} />} note={money.partner_advances ? `${money.partner_advances.toLocaleString("en-LK")} advanced` : undefined} />}
-        {finance && <Stat label={`${monthLabel(month)} commission`} value={<Money value={money.month_profit} />} note={`${money.month_orders} delivered · before ads`} tone="good" />}
+        {finance && <Stat label={`${monthLabel(month)} commission`} value={<Money value={money.month_profit} />} note={`${money.month_orders} delivered · ${periodRange(month)} · before ads`} tone="good" />}
       </div>
 
       <div className="grid two">

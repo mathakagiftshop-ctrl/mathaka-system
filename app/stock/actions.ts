@@ -19,7 +19,7 @@ const touch = (orderId?: string | null) => {
 };
 
 async function monthClosed(tx: Tx, date: string) {
-  const [closed] = await tx`select 1 from month_closes where month = date_trunc('month', ${date}::date)::date`;
+  const [closed] = await tx`select 1 from month_closes where month = pay_period(${date}::date)`;
   return Boolean(closed);
 }
 

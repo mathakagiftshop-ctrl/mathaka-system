@@ -38,12 +38,53 @@ export function addMonths(month: string, months: number) {
   return value.toISOString().slice(0, 7);
 }
 
-/** The profit share for a month is paid on this day of the following month. */
-export const PAYOUT_DAY = 20;
+/**
+ * Profit is counted in periods that run from the 21st to the 20th, named by the month
+ * they end in: '2026-11' is 21 Oct – 20 Nov. A period closes on its last day (the 20th),
+ * when the profit share is paid. Months before October 2026 were calendar months, so
+ * October 2026 is the short 1–20 Oct. Keep in step with pay_period() in the database.
+ */
+export const PERIOD_END_DAY = 20;
+const FIRST_SHIFTED_PERIOD = "2026-10";
 
-/** 'YYYY-MM-DD' the share for `month` is due: September → 20 October. */
-export function payoutDate(month: string) {
-  return `${addMonths(month, 1)}-${String(PAYOUT_DAY).padStart(2, "0")}`;
+/** The period a 'YYYY-MM-DD' counts in: '2026-10-21' → '2026-11'. */
+export function periodOf(date: string) {
+  const month = date.slice(0, 7);
+  if (month < FIRST_SHIFTED_PERIOD) return month;
+  return Number(date.slice(8, 10)) > PERIOD_END_DAY ? addMonths(month, 1) : month;
+}
+
+/** The period today falls in. */
+export function currentPeriod() {
+  return periodOf(today());
+}
+
+/** Last day of a period: '2026-11' → '2026-11-20' ('2026-09' → '2026-09-30'). */
+export function periodEnd(period: string) {
+  if (period < FIRST_SHIFTED_PERIOD) return addDays(`${addMonths(period, 1)}-01`, -1);
+  return `${period}-${String(PERIOD_END_DAY).padStart(2, "0")}`;
+}
+
+/** First day of a period: '2026-11' → '2026-10-21'. */
+export function periodStart(period: string) {
+  return addDays(periodEnd(addMonths(period, -1)), 1);
+}
+
+/** '21 Oct – 20 Nov' */
+export function periodRange(period: string) {
+  return `${formatDate(periodStart(period), { year: undefined })} – ${formatDate(periodEnd(period), { year: undefined })}`;
+}
+
+/** The latest period that has reached its last day (it can close now). */
+export function lastEndedPeriod() {
+  const period = currentPeriod();
+  return periodEnd(period) <= today() ? period : addMonths(period, -1);
+}
+
+/** 'YYYY-MM-DD' the share for `period` is due: its last day; calendar months paid on the 20th after. */
+export function payoutDate(period: string) {
+  if (period < FIRST_SHIFTED_PERIOD) return `${addMonths(period, 1)}-${String(PERIOD_END_DAY).padStart(2, "0")}`;
+  return periodEnd(period);
 }
 
 export function addDays(date: string, days: number) {

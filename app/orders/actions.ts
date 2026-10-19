@@ -294,7 +294,7 @@ export const setJobAmount = formAction(z.object({ job_id: uuid, agreed_amount: m
       where j.id = ${input.job_id} for update of j`;
     if (!current) throw new UserError("That job no longer exists.");
     // Partner cost counts in the order's month, so a closed month's figures would drift.
-    const [closed] = await tx`select 1 from month_closes where month = date_trunc('month', ${current.month}::date)::date`;
+    const [closed] = await tx`select 1 from month_closes where month = pay_period(${current.month}::date)`;
     if (closed) throw new UserError("This order's month is closed. Reopen it in Reports first.");
     await tx`update partner_jobs set agreed_amount = ${input.agreed_amount}, updated_at = now() where id = ${input.job_id}`;
     await audit(user.id, "job.amount_changed", "job", input.job_id, { from: current.agreed_amount, to: input.agreed_amount }, tx);

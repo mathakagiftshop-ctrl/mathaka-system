@@ -3,14 +3,15 @@ import { audit } from "@/lib/audit";
 import { UserError } from "@/lib/actions";
 import { db } from "@/lib/db";
 import { monthReport } from "@/lib/data/reports";
-import { currentMonth } from "@/lib/format";
+import { formatDate, periodEnd, today } from "@/lib/format";
 
 /**
  * Freezes a month's profit and split so later edits or ratio changes don't alter it.
  * `userId` is null when the payout cron closes it. Throws UserError when it can't close yet.
  */
 export async function closeMonthNow(month: string, userId: string | null) {
-  if (month >= currentMonth()) throw new UserError("You can only close a month after it has ended.");
+  // A period can close on its last day (the 20th), when the share is due.
+  if (periodEnd(month) > today()) throw new UserError(`This period runs until ${formatDate(periodEnd(month))}. You can close it from then.`);
   const report = await monthReport(month);
   if (report.closedAt) throw new UserError("That month is already closed.");
   if (report.open.orders > 0) {

@@ -39,21 +39,21 @@ export async function monthReport(month: string) {
     sql<{ business_expenses: number; ad_spend: number }[]>`
       select coalesce(sum(amount) filter (where order_id is null), 0) as business_expenses,
         coalesce(sum(amount) filter (where category = 'meta_ads'), 0) as ad_spend
-      from expenses where date_trunc('month', spent_on) = ${start}::date`,
+      from expenses where pay_period(spent_on) = ${start}::date`,
     sql<{ money_in: number; paid_partners: number; paid_expenses: number; stock_bought: number }[]>`
       select
-        (select coalesce(sum(total_cost), 0) from stock_purchases where date_trunc('month', bought_on) = ${start}::date) as stock_bought,
-        (select coalesce(sum(amount), 0) from customer_payments where status = 'verified' and date_trunc('month', received_on) = ${start}::date) as money_in,
-        (select coalesce(sum(amount), 0) from partner_payments where voided_at is null and date_trunc('month', paid_on) = ${start}::date) as paid_partners,
-        (select coalesce(sum(amount), 0) from expenses where date_trunc('month', spent_on) = ${start}::date) as paid_expenses`,
+        (select coalesce(sum(total_cost), 0) from stock_purchases where pay_period(bought_on) = ${start}::date) as stock_bought,
+        (select coalesce(sum(amount), 0) from customer_payments where status = 'verified' and pay_period(received_on) = ${start}::date) as money_in,
+        (select coalesce(sum(amount), 0) from partner_payments where voided_at is null and pay_period(paid_on) = ${start}::date) as paid_partners,
+        (select coalesce(sum(amount), 0) from expenses where pay_period(spent_on) = ${start}::date) as paid_expenses`,
     sql<{ owner_percent: number; owner_label: string; partner_label: string; owner_share: number; partner_share: number; net_profit: number; closed_at: Date; revenue: number; partner_costs: number; order_expenses: number; business_expenses: number; stock_costs: number; stock_written_off: number; partner_paid_at: Date | null; advances_deducted: number }[]>`
       select * from month_closes where month = ${start}::date`,
     sql<{ category: string; amount: number }[]>`
-      select category, sum(amount) as amount from expenses where date_trunc('month', spent_on) = ${start}::date group by category order by amount desc`,
+      select category, sum(amount) as amount from expenses where pay_period(spent_on) = ${start}::date group by category order by amount desc`,
     getSettings(),
     sql<{ written_off: number; on_hand_value: number }[]>`
       select
-        (select coalesce(sum(cost), 0) from stock_moves where kind = 'written_off' and date_trunc('month', moved_on) = ${start}::date) as written_off,
+        (select coalesce(sum(cost), 0) from stock_moves where kind = 'written_off' and pay_period(moved_on) = ${start}::date) as written_off,
         (select coalesce(sum(value), 0) from stock_levels) as on_hand_value`,
   ]);
 
@@ -131,8 +131,8 @@ export async function monthlyTrend(months = 12) {
   const sql = db();
   return sql<{ month: string; revenue: number; commission: number; business_expenses: number; ad_spend: number; orders: number }[]>`
     with m as (
-      select generate_series(date_trunc('month', now() at time zone 'Asia/Colombo') - make_interval(months => ${months - 1}),
-                             date_trunc('month', now() at time zone 'Asia/Colombo'), interval '1 month')::date as month
+      select generate_series(pay_period((now() at time zone 'Asia/Colombo')::date) - make_interval(months => ${months - 1}),
+                             pay_period((now() at time zone 'Asia/Colombo')::date), interval '1 month')::date as month
     )
     select to_char(m.month, 'YYYY-MM') as month,
       coalesce(o.revenue, 0) as revenue, coalesce(o.commission, 0) as commission,
@@ -144,12 +144,12 @@ export async function monthlyTrend(months = 12) {
       from order_summary s join orders o on o.id = s.order_id where o.status <> 'enquiry' group by s.month
     ) o on o.month = m.month
     left join (
-      select date_trunc('month', spent_on)::date as month, sum(amount) filter (where order_id is null) as business_expenses,
+      select pay_period(spent_on) as month, sum(amount) filter (where order_id is null) as business_expenses,
         sum(amount) filter (where category = 'meta_ads') as ad_spend
       from expenses group by 1
     ) e on e.month = m.month
     left join (
-      select date_trunc('month', moved_on)::date as month, sum(cost) as written_off
+      select pay_period(moved_on) as month, sum(cost) as written_off
       from stock_moves where kind = 'written_off' group by 1
     ) w on w.month = m.month
     order by m.month

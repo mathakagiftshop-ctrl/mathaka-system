@@ -6,7 +6,7 @@ import { ActionButton, ActionForm, Field, Select, Submit } from "@/components/fo
 import { addStockItem, addStockPurchase, deleteStockPurchase, returnStock, updateStockItem, writeOffStock } from "@/app/stock/actions";
 import { PAYMENT_METHODS } from "@/lib/constants";
 import { isLow, listStock, stockActivity, type StockItemRow } from "@/lib/data/stock";
-import { currentMonth, formatDate, monthLabel, today } from "@/lib/format";
+import { currentPeriod, periodRange, formatDate, monthLabel, today } from "@/lib/format";
 import { stockUnitCost } from "@/lib/money";
 
 export const metadata: Metadata = { title: "Stock" };
@@ -21,7 +21,7 @@ const ACTIVITY = {
 
 export default async function StockPage({ searchParams }: { searchParams: Promise<{ month?: string; all?: string }> }) {
   const params = await searchParams;
-  const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : currentMonth();
+  const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : currentPeriod();
   const showAll = params.all === "1";
   const [items, activity] = await Promise.all([listStock({ includeInactive: showAll }), stockActivity({ month })]);
   const active = items.filter((item) => item.active);
@@ -42,7 +42,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
 
       <div className="stats">
         <Stat label="Stock on hand" value={<Money value={onHandValue} />} tone="dark" note="Bought, not used yet" />
-        <Stat label={`Bought in ${monthLabel(month)}`} value={<Money value={sum("bought")} />} note="Cash paid out" />
+        <Stat label={`Bought in ${monthLabel(month)}`} value={<Money value={sum("bought")} />} note={`${periodRange(month)} · cash paid out`} />
         <Stat label="Used on orders" value={<Money value={sum("used")} />} note="Counted in order costs" />
         <Stat label="Written off" value={<Money value={sum("written_off")} />} tone={sum("written_off") > 0 ? "warn" : undefined} note="Counted as a business cost" />
       </div>
@@ -75,7 +75,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                 <button className="btn small" type="submit">Show</button>
               </form>
             </div>
-            {activity.length === 0 ? <p className="muted">Nothing bought, used or written off this month.</p> : (
+            {activity.length === 0 ? <p className="muted">Nothing bought, used or written off this period ({periodRange(month)}).</p> : (
               <div className="table-wrap table-plain">
                 <table>
                   <thead><tr><th>Date</th><th>What</th><th className="right">Qty</th><th className="right">Amount</th><th /></tr></thead>

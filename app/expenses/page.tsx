@@ -7,32 +7,32 @@ import { addExpense, decideMetaCampaign, deleteExpense, syncMetaAdsNow, unskipMe
 import { EXPENSE_CATEGORIES, expenseLabel } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/data/settings";
-import { currentMonth, formatDate, formatDateTime, formatMoney, monthLabel, today } from "@/lib/format";
+import { currentPeriod, periodRange, formatDate, formatDateTime, formatMoney, monthLabel, today } from "@/lib/format";
 import { metaSyncConfigured } from "@/lib/meta-ads";
 
 export const metadata: Metadata = { title: "Expenses" };
 
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<{ month?: string; category?: string }> }) {
   const params = await searchParams;
-  const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : currentMonth();
+  const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : currentPeriod();
   const category = EXPENSE_CATEGORIES.some((item) => item.value === params.category) ? params.category! : null;
   const sql = db();
   const [expenses, totals, [stock], campaigns, settings, skippedDays] = await Promise.all([
     sql<{ id: string; spent_on: string; category: string; description: string; amount: number; order_id: string | null; order_number: string | null; meta_campaign_id: string | null }[]>`
       select e.id, e.spent_on, e.category, e.description, e.amount, e.order_id, o.number as order_number, e.meta_campaign_id
       from expenses e left join orders o on o.id = e.order_id
-      where date_trunc('month', e.spent_on) = ${`${month}-01`}::date ${category ? sql`and e.category = ${category}` : sql``}
+      where pay_period(e.spent_on) = ${`${month}-01`}::date ${category ? sql`and e.category = ${category}` : sql``}
       order by e.spent_on desc, e.created_at desc`,
     sql<{ category: string; amount: number }[]>`
-      select category, sum(amount) as amount from expenses where date_trunc('month', spent_on) = ${`${month}-01`}::date group by category`,
+      select category, sum(amount) as amount from expenses where pay_period(spent_on) = ${`${month}-01`}::date group by category`,
     sql<{ bought: number }[]>`
-      select coalesce(sum(total_cost), 0) as bought from stock_purchases where date_trunc('month', bought_on) = ${`${month}-01`}::date`,
+      select coalesce(sum(total_cost), 0) as bought from stock_purchases where pay_period(bought_on) = ${`${month}-01`}::date`,
     sql<{ id: string; name: string; counted: boolean | null; first_seen_on: string }[]>`
       select id, name, counted, first_seen_on from meta_campaigns order by counted nulls first, first_seen_on desc`,
     getSettings(),
     sql<{ campaign_id: string; name: string; day: string; amount: number }[]>`
       select s.campaign_id, c.name, s.day, s.amount from meta_skipped_days s join meta_campaigns c on c.id = s.campaign_id
-      where date_trunc('month', s.day) = ${`${month}-01`}::date order by s.day`,
+      where pay_period(s.day) = ${`${month}-01`}::date order by s.day`,
   ]);
   const undecided = campaigns.filter((campaign) => campaign.counted === null);
   const synced = expenses.some((expense) => expense.meta_campaign_id);
@@ -42,7 +42,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
 
   return (
     <AppShell permission="finance">
-      <PageHeader eyebrow="Expenses" title={monthLabel(month)} description={<>Business costs like Meta ads, packaging and phone bills. Costs for one order are added on that order&apos;s page. Things bought in bulk to use on orders (frames etc.) go in <Link className="link" href="/stock">Stock</Link>.</>} />
+      <PageHeader eyebrow="Expenses" title={monthLabel(month)} description={<>{periodRange(month)}. Business costs like Meta ads, packaging and phone bills. Costs for one order are added on that order&apos;s page. Things bought in bulk to use on orders (frames etc.) go in <Link className="link" href="/stock">Stock</Link>.</>} />
       <form className="filters" action="/expenses">
         <label className="field"><span>Month</span><input type="month" name="month" defaultValue={month} /></label>
         <label className="field"><span>Category</span>

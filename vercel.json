@@ -3,6 +3,6 @@
   "regions": ["sin1"],
   "crons": [
     { "path": "/api/cron/meta-ads", "schedule": "30 0 * * *" },
-    { "path": "/api/cron/month-close", "schedule": "0 19 19-30 * *" }
+    { "path": "/api/cron/month-close", "schedule": "0 18 * * *" }
   ]
 }

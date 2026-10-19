@@ -1,7 +1,7 @@
 import "server-only";
 import { UserError } from "@/lib/actions";
 import { db } from "@/lib/db";
-import { today } from "@/lib/format";
+import { periodOf, today } from "@/lib/format";
 import { isMathakaCampaign, spendRows, type SpendRow } from "@/lib/meta-spend";
 
 const GRAPH = "https://graph.facebook.com/v23.0";
@@ -70,7 +70,7 @@ export async function syncMetaAds() {
       const skipped = new Set((await tx<{ key: string }[]>`select campaign_id || '|' || to_char(day, 'YYYY-MM-DD') as key from meta_skipped_days`).map((row) => row.key));
       const closed = new Set((await tx<{ month: string }[]>`select to_char(month, 'YYYY-MM') as month from month_closes`).map((row) => row.month));
       const keep = rows.filter((row) => counted.has(row.campaignId) && row.spend > 0
-        && !closed.has(row.day.slice(0, 7)) && !skipped.has(`${row.campaignId}|${row.day}`));
+        && !closed.has(periodOf(row.day)) && !skipped.has(`${row.campaignId}|${row.day}`));
 
       if (keep.length) {
         await tx`
@@ -90,7 +90,7 @@ export async function syncMetaAds() {
       await tx`
         delete from expenses
         where meta_campaign_id is not null and meta_day >= ${settings.since}::date
-          and not (to_char(meta_day, 'YYYY-MM') = any(${[...closed]}::text[]))
+          and not (to_char(pay_period(meta_day), 'YYYY-MM') = any(${[...closed]}::text[]))
           and not ((meta_campaign_id || '|' || to_char(meta_day, 'YYYY-MM-DD')) = any(${keys}::text[]))`;
       await tx`update settings set meta_synced_at = now(), meta_sync_error = null where id = 1`;
       return { days: keep.length, added };

@@ -10,7 +10,7 @@ import { findCity } from "@/lib/cities";
 import { PAYMENT_METHODS, expenseLabel, methodLabel } from "@/lib/constants";
 import { cityStats, isMonthClosed, monthReport, monthlyTrend, partnerLeaderboard, shareAdvances, type CityStat } from "@/lib/data/reports";
 import { sharePayout } from "@/lib/money";
-import { PAYOUT_DAY, addDays, addMonths, currentMonth, formatDate, formatMoney, monthLabel, payoutDate, today } from "@/lib/format";
+import { addDays, addMonths, currentPeriod, formatDate, formatMoney, lastEndedPeriod, monthLabel, payoutDate, periodEnd, periodRange, today } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Reports & map" };
 
@@ -23,20 +23,20 @@ const ranges = [
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ month?: string; range?: string }> }) {
   const params = await searchParams;
   const user = await requireUser("finance");
-  const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : currentMonth();
+  const month = /^\d{4}-\d{2}$/.test(params.month ?? "") ? params.month! : currentPeriod();
   const range = ranges.find((item) => item.value === params.range)?.value ?? "all";
   const since = range === "90" ? addDays(today(), -90) : range === "year" ? addDays(today(), -365) : null;
-  // From the 20th, last month's share is due; it can't be paid until that month is closed.
-  const dueMonth = addMonths(currentMonth(), -1);
-  const shareDue = Number(today().slice(8)) >= PAYOUT_DAY;
+  // A period's share is due on its last day and it closes that night; flag it if it's still open after.
+  const overdue = [addMonths(lastEndedPeriod(), -1), lastEndedPeriod()].filter((period) => payoutDate(period) < today());
   const [report, trend, cities, leaders, dueClosed, advances] = await Promise.all([
-    monthReport(month), monthlyTrend(12), cityStats(since), partnerLeaderboard(since), shareDue ? isMonthClosed(dueMonth) : true, shareAdvances(),
+    monthReport(month), monthlyTrend(12), cityStats(since), partnerLeaderboard(since), Promise.all(overdue.map(isMonthClosed)), shareAdvances(),
   ]);
   // Once paid, show what was actually taken off; until then, what would come off now.
   const payout = report.sharePaidAt
     ? { deducted: report.advancesDeducted, toPay: Math.max(report.split.partner, 0) - report.advancesDeducted }
     : sharePayout(report.split.partner, advances.owed);
-  const isPast = month < currentMonth();
+  const ended = periodEnd(month) <= today();
+  const dueOpen = overdue.filter((_, index) => !dueClosed[index]);
   const bridge = report.profitToCash;
   const completedTotal = cities.reduce((sum, city) => sum + city.completed, 0);
   const unmapped = cities.filter((city) => city.orders > 0 && !findCity(city.city));
@@ -44,14 +44,14 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
   return (
     <AppShell permission="finance">
-      <PageHeader eyebrow="Reports" title="How the business is doing" description="Profit counts orders once they're delivered, in the month of their delivery date. Business costs count in the month they're spent." />
+      <PageHeader eyebrow="Reports" title="How the business is doing" description="Profit is counted from the 21st to the 20th, named by the month it ends in (November is 21 Oct – 20 Nov). Orders count once delivered, by their delivery date; business costs by the day they're spent." />
 
-      {!dueClosed && (
-        <p className="notice warn" style={{ marginBottom: 16 }}>
-          {report.split.partnerLabel}&apos;s share for {monthLabel(dueMonth)} was due on {formatDate(payoutDate(dueMonth))}, but that month couldn&apos;t close yet.
-          {" "}<Link className="link" href={link({ month: dueMonth })}>See what&apos;s still open →</Link> It closes automatically each night once everything is delivered.
+      {dueOpen.map((period) => (
+        <p key={period} className="notice warn" style={{ marginBottom: 16 }}>
+          {report.split.partnerLabel}&apos;s share for {monthLabel(period)} ({periodRange(period)}) was due on {formatDate(payoutDate(period))}, but that period couldn&apos;t close yet.
+          {" "}<Link className="link" href={link({ month: period })}>See what&apos;s still open →</Link> It closes automatically each night once everything is delivered.
         </p>
-      )}
+      ))}
 
       <form className="filters" action="/reports">
         <label className="field"><span>Month</span><input type="month" name="month" defaultValue={month} /></label>
@@ -62,7 +62,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <div className="grid two" style={{ marginBottom: 22 }}>
         <section className="card">
           <div className="card-head">
-            <h2>{monthLabel(month)} profit</h2>
+            <h2>{monthLabel(month)} profit <small className="muted">{periodRange(month)}</small></h2>
             {report.closedAt ? <span className="badge sage">Closed {formatDate(report.closedAt)}</span> : <span className="badge gold">Open — can still change</span>}
           </div>
           <div className="money-lines">
@@ -107,8 +107,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               ? `Mark ${report.split.partnerLabel}'s share paid? Hand over ${formatMoney(payout.toPay)}; ${formatMoney(payout.deducted)} comes off for advances.`
               : `Mark ${formatMoney(report.split.partner)} as paid to ${report.split.partnerLabel}?`}>Mark {report.split.partnerLabel} paid</ActionButton>}
             {report.sharePaidAt && can(user, "settings") && <ActionButton action={unmarkSharePaid} fields={{ month }} className="btn small ghost" confirm="Undo this payment record?">Undo paid</ActionButton>}
-            {!report.closedAt && isPast && <ActionButton action={closeMonth} fields={{ month }} className="btn primary small" confirm={`Close ${monthLabel(month)}? Its numbers and split will be fixed.`}>Close month & fix split</ActionButton>}
-            {!report.closedAt && !isPast && <small>Closes automatically on {formatDate(payoutDate(month))}, when {report.split.partnerLabel}&apos;s share is due. You can close it earlier once the month ends.</small>}
+            {!report.closedAt && ended && <ActionButton action={closeMonth} fields={{ month }} className="btn primary small" confirm={`Close ${monthLabel(month)} (${periodRange(month)})? Its numbers and split will be fixed.`}>Close month & fix split</ActionButton>}
+            {!report.closedAt && !ended && <small>Closes automatically on the night of {formatDate(periodEnd(month))}, when {report.split.partnerLabel}&apos;s share is due. You can close it yourself from that morning.</small>}
             {report.closedAt && can(user, "settings") && <ActionButton action={reopenMonth} fields={{ month }} className="btn small ghost" confirm="Reopen this month? Numbers will be recalculated.">Reopen month</ActionButton>}
           </div>
         </section>
@@ -208,11 +208,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         <h2 style={{ marginBottom: 12 }}>Last 12 months</h2>
         <div className="table-wrap table-plain">
           <table>
-            <thead><tr><th>Month</th><th className="right">Orders</th><th className="right">Sales</th><th className="right">Commission</th><th className="right">Business costs</th><th className="right">Meta ads</th><th className="right">Net profit</th></tr></thead>
+            <thead><tr><th>Period</th><th className="right">Orders</th><th className="right">Sales</th><th className="right">Commission</th><th className="right">Business costs</th><th className="right">Meta ads</th><th className="right">Net profit</th></tr></thead>
             <tbody>
               {trend.slice().reverse().map((row) => (
                 <tr key={row.month}>
-                  <td><Link className="link" href={link({ month: row.month })}>{monthLabel(row.month)}</Link></td>
+                  <td><Link className="link" href={link({ month: row.month })}>{monthLabel(row.month)}</Link> <small className="muted">{periodRange(row.month)}</small></td>
                   <td className="right num">{row.orders}</td>
                   <td className="right"><Money value={row.revenue} /></td>
                   <td className="right"><Money value={row.commission} /></td>

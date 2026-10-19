@@ -26,7 +26,7 @@ export const deleteExpense = formAction(z.object({ expense_id: uuid }), async ({
   const sql = db();
   const [row] = await sql<{ order_id: string | null; spent_on: string; meta_campaign_id: string | null; amount: number }[]>`select order_id, spent_on, meta_campaign_id, amount from expenses where id = ${expense_id}`;
   if (!row) throw new UserError("Already deleted.");
-  const [closed] = await sql`select 1 from month_closes where month = date_trunc('month', ${row.spent_on}::date)::date`;
+  const [closed] = await sql`select 1 from month_closes where month = pay_period(${row.spent_on}::date)`;
   if (closed) throw new UserError("That month is closed. Reopen it in Reports first.");
   await sql.begin(async (tx) => {
     // A synced Meta day is remembered as skipped, so the next sync doesn't bring it back.
@@ -75,7 +75,7 @@ export const unskipMetaDay = formAction(z.object({
   day: requiredDate,
 }), async ({ campaign_id, day }, user) => {
   const sql = db();
-  const [closed] = await sql`select 1 from month_closes where month = date_trunc('month', ${day}::date)::date`;
+  const [closed] = await sql`select 1 from month_closes where month = pay_period(${day}::date)`;
   if (closed) throw new UserError("That month is closed. Reopen it in Reports first.");
   const rows = await sql`delete from meta_skipped_days where campaign_id = ${campaign_id} and day = ${day} returning day`;
   if (!rows.length) throw new UserError("That day isn't skipped.");

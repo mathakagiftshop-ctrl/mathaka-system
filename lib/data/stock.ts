@@ -85,7 +85,7 @@ export async function stockActivity(options: { month?: string; itemId?: string }
       from stock_moves m join stock_items i on i.id = m.item_id left join orders o on o.id = m.order_id
     ) a
     where true
-      ${start ? sql`and date_trunc('month', a.on_date) = ${start}::date` : sql``}
+      ${start ? sql`and pay_period(a.on_date) = ${start}::date` : sql``}
       ${options.itemId ? sql`and a.item_id = ${options.itemId}` : sql``}
     order by a.on_date desc, a.created_at desc
     limit 200
