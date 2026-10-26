@@ -107,6 +107,30 @@ export function stockOutCost(onHand: { quantity: number; value: number }, quanti
   return round(Math.max(onHand.value, 0) * quantity / onHand.quantity);
 }
 
+/**
+ * Replays an item's purchases and moves in the order they were recorded and
+ * returns what each move should cost. Moves flagged `fixed` keep their cost.
+ * Returns null if a move takes out more than was on hand at that point.
+ */
+export function replayStockCosts(events: { type: "bought" | "used" | "written_off"; quantity: number; amount: number; fixed?: boolean }[]) {
+  const onHand = { quantity: 0, value: 0 };
+  const costs: number[] = [];
+  for (const event of events) {
+    if (event.type === "bought") {
+      onHand.quantity += event.quantity;
+      onHand.value = round(onHand.value + event.amount);
+      costs.push(event.amount);
+      continue;
+    }
+    if (event.quantity > onHand.quantity + 1e-9) return null;
+    const cost = event.fixed ? event.amount : stockOutCost(onHand, event.quantity);
+    onHand.quantity -= event.quantity;
+    onHand.value = round(onHand.value - cost);
+    costs.push(cost);
+  }
+  return costs;
+}
+
 /** Average cost per unit of what's on hand, or null when there's none. */
 export function stockUnitCost(onHand: { quantity: number; value: number }) {
   return onHand.quantity > 0 ? round(onHand.value / onHand.quantity) : null;

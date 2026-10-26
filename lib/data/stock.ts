@@ -67,6 +67,10 @@ export type StockActivity = {
   order_id: string | null;
   order_number: string | null;
   created_at: Date;
+  /** Purchases only, for editing. */
+  supplier: string | null;
+  method: string | null;
+  notes: string | null;
 };
 
 /** Purchases, uses and write-offs in one list, newest first. */
@@ -77,11 +81,11 @@ export async function stockActivity(options: { month?: string; itemId?: string }
     select * from (
       select p.id, 'bought' as type, p.bought_on as on_date, p.item_id, i.name as item_name, i.unit, p.quantity,
         p.total_cost as amount, concat_ws(' · ', nullif(p.supplier, ''), nullif(p.notes, '')) as detail,
-        null::uuid as order_id, null as order_number, p.created_at
+        null::uuid as order_id, null as order_number, p.created_at, p.supplier, p.method, p.notes
       from stock_purchases p join stock_items i on i.id = p.item_id
       union all
       select m.id, m.kind, m.moved_on, m.item_id, i.name, i.unit, m.quantity, m.cost, m.notes,
-        m.order_id, o.number, m.created_at
+        m.order_id, o.number, m.created_at, null, null, null
       from stock_moves m join stock_items i on i.id = m.item_id left join orders o on o.id = m.order_id
     ) a
     where true

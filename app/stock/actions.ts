@@ -6,7 +6,7 @@ import { audit } from "@/lib/audit";
 import { checkbox, formAction, money, optionalUuid, positiveMoney, requiredDate, requiredText, text, UserError, uuid } from "@/lib/actions";
 import { PAYMENT_METHOD_VALUES } from "@/lib/constants";
 import { db, type Tx } from "@/lib/db";
-import { stockOutCost } from "@/lib/money";
+import { replayStockCosts, stockOutCost } from "@/lib/money";
 
 const quantity = z.coerce.number().positive("must be more than zero").max(100_000);
 
@@ -104,6 +104,58 @@ export const addStockPurchase = formAction(z.object({
   });
   touch();
   return "Purchase recorded.";
+}, "finance");
+
+/**
+ * Fixes a purchase entered wrong. Stock taken out after it went out at an
+ * average that included the wrong figures, so those moves are re-costed by
+ * replaying the item's history; closed months can't change that way.
+ */
+export const updateStockPurchase = formAction(z.object({
+  purchase_id: uuid,
+  quantity,
+  total_cost: positiveMoney,
+  bought_on: requiredDate,
+  supplier: text(120),
+  method: z.enum(PAYMENT_METHOD_VALUES),
+  notes: text(300),
+}), async (input, user) => {
+  const orderIds = await db().begin(async (tx) => {
+    const [purchase] = await tx<{ item_id: string; bought_on: string; created_at: Date }[]>`
+      select item_id, bought_on, created_at from stock_purchases where id = ${input.purchase_id}`;
+    if (!purchase) throw new UserError("That purchase was deleted.");
+    const [item] = await tx<{ name: string; unit: string }[]>`select name, unit from stock_items where id = ${purchase.item_id} for update`;
+    await tx`
+      update stock_purchases set quantity = ${input.quantity}, total_cost = ${input.total_cost}, bought_on = ${input.bought_on},
+        supplier = ${input.supplier}, method = ${input.method}, notes = ${input.notes}
+      where id = ${input.purchase_id}`;
+
+    // Replay purchases and moves in the order they were recorded (a purchase
+    // before a move made in the same instant, as takeOut saw it).
+    const events = await tx<{ id: string; type: "bought" | "used" | "written_off"; quantity: number; amount: number; created_at: Date; month: string | null; order_id: string | null }[]>`
+      select id, 'bought' as type, quantity, total_cost as amount, created_at, null::date as month, null::uuid as order_id
+      from stock_purchases where item_id = ${purchase.item_id}
+      union all
+      select m.id, m.kind, m.quantity, m.cost, m.created_at, coalesce(s.month, m.moved_on), m.order_id
+      from stock_moves m left join order_summary s on s.order_id = m.order_id
+      where m.item_id = ${purchase.item_id}
+      order by created_at, type`;
+    // Moves recorded before this purchase keep their cost; later ones are re-costed.
+    const costs = replayStockCosts(events.map((event) => ({ ...event, fixed: event.created_at < purchase.created_at })));
+    if (!costs) throw new UserError(`More ${item.name} was used or written off than this would leave bought. Return some first, or check the quantity.`);
+    const changed = new Set<string>();
+    for (const [index, event] of events.entries()) {
+      if (event.type === "bought" || costs[index] === event.amount) continue;
+      if (await monthClosed(tx, event.month!)) throw new UserError("This changes the cost of stock used in a closed month. Reopen it in Reports first.");
+      await tx`update stock_moves set cost = ${costs[index]} where id = ${event.id}`;
+      if (event.order_id) changed.add(event.order_id);
+    }
+    await audit(user.id, "stock.purchase_updated", "stock_purchase", input.purchase_id, { ...input, recosted_orders: [...changed] }, tx);
+    return [...changed];
+  });
+  touch();
+  for (const orderId of orderIds) revalidatePath(`/orders/${orderId}`);
+  return orderIds.length ? `Purchase saved. Stock costs updated on ${orderIds.length} order${orderIds.length === 1 ? "" : "s"}.` : "Purchase saved.";
 }, "finance");
 
 /**

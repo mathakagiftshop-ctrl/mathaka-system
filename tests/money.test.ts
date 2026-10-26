@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceAmount, costPerOrder, customerBalance, itemsSubtotal, monthNetProfit, orderProfit, orderTotal, partnerBalance, plannedCost, profitToCash, round, sharePayout, splitProfit, stockOutCost, stockUnitCost } from "@/lib/money";
+import { advanceAmount, costPerOrder, customerBalance, itemsSubtotal, monthNetProfit, orderProfit, orderTotal, partnerBalance, plannedCost, profitToCash, round, replayStockCosts, sharePayout, splitProfit, stockOutCost, stockUnitCost } from "@/lib/money";
 
 describe("order totals", () => {
   it("adds items and delivery, subtracts discount", () => {
@@ -121,5 +121,33 @@ describe("stock", () => {
   it("nothing on hand costs nothing and has no unit cost", () => {
     expect(stockOutCost({ quantity: 0, value: 0 }, 1)).toBe(0);
     expect(stockUnitCost({ quantity: 0, value: 0 })).toBeNull();
+  });
+
+  it("fixing a purchase price re-costs what was used after it", () => {
+    // 5 frames typed in as 100,000 instead of 10,000; 2 used since at the wrong average.
+    const costs = replayStockCosts([
+      { type: "bought", quantity: 5, amount: 10000 },
+      { type: "used", quantity: 2, amount: 40000 },
+      { type: "bought", quantity: 5, amount: 15000 },
+      { type: "written_off", quantity: 1, amount: 4250 },
+    ]);
+    expect(costs).toEqual([10000, 4000, 15000, 2625]);
+  });
+
+  it("moves before the edited purchase keep their cost", () => {
+    const costs = replayStockCosts([
+      { type: "bought", quantity: 2, amount: 1000 },
+      { type: "used", quantity: 1, amount: 500, fixed: true },
+      { type: "bought", quantity: 1, amount: 800 },
+      { type: "used", quantity: 2, amount: 1300 },
+    ]);
+    expect(costs).toEqual([1000, 500, 800, 1300]);
+  });
+
+  it("can't lower a quantity below what was already taken out", () => {
+    expect(replayStockCosts([
+      { type: "bought", quantity: 1, amount: 1000 },
+      { type: "used", quantity: 2, amount: 2000 },
+    ])).toBeNull();
   });
 });

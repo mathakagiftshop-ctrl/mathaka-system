@@ -3,9 +3,9 @@ import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Badge, Empty, Money, PageHeader, Stat } from "@/components/bits";
 import { ActionButton, ActionForm, Field, Select, Submit } from "@/components/form";
-import { addStockItem, addStockPurchase, deleteStockPurchase, returnStock, updateStockItem, writeOffStock } from "@/app/stock/actions";
+import { addStockItem, addStockPurchase, deleteStockPurchase, updateStockPurchase, returnStock, updateStockItem, writeOffStock } from "@/app/stock/actions";
 import { PAYMENT_METHODS } from "@/lib/constants";
-import { isLow, listStock, stockActivity, type StockItemRow } from "@/lib/data/stock";
+import { isLow, listStock, stockActivity, type StockActivity, type StockItemRow } from "@/lib/data/stock";
 import { currentPeriod, periodRange, formatDate, monthLabel, today } from "@/lib/format";
 import { stockUnitCost } from "@/lib/money";
 
@@ -92,7 +92,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                         <td className="right"><Money value={row.amount} /></td>
                         <td className="right">
                           {row.type === "bought"
-                            ? <ActionButton action={deleteStockPurchase} fields={{ purchase_id: row.id }} className="btn small ghost" confirm="Delete this purchase?">Delete</ActionButton>
+                            ? <PurchaseActions row={row} />
                             : <ActionButton action={returnStock} fields={{ move_id: row.id }} className="btn small ghost" confirm="Put this back into stock?">Return</ActionButton>}
                         </td>
                       </tr>
@@ -190,5 +190,28 @@ function ItemRow({ item }: { item: StockItemRow }) {
         </div>
       </td>
     </tr>
+  );
+}
+
+function PurchaseActions({ row }: { row: StockActivity }) {
+  return (
+    <div className="stack" style={{ gap: 4, justifyItems: "end" }}>
+      <details className="panel">
+        <summary>Edit</summary>
+        <div className="panel-body" style={{ textAlign: "left" }}>
+          <ActionForm action={updateStockPurchase} resetOnSuccess={false}>
+            <input type="hidden" name="purchase_id" value={row.id} />
+            <Field label="How many" name="quantity" type="number" min="0.01" step="0.01" defaultValue={row.quantity} required />
+            <Field label="Total paid" name="total_cost" type="number" min="1" step="0.01" defaultValue={row.amount} required />
+            <Field label="Date" name="bought_on" type="date" defaultValue={row.on_date} required />
+            <Select label="Paid by" name="method" options={PAYMENT_METHODS} defaultValue={row.method ?? "cash"} />
+            <Field label="Where from" name="supplier" defaultValue={row.supplier ?? ""} />
+            <Field label="Note" name="notes" defaultValue={row.notes ?? ""} />
+            <Submit className="btn small">Save</Submit>
+          </ActionForm>
+        </div>
+      </details>
+      <ActionButton action={deleteStockPurchase} fields={{ purchase_id: row.id }} className="btn small ghost" confirm="Delete this purchase?">Delete</ActionButton>
+    </div>
   );
 }
