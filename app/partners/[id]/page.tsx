@@ -151,6 +151,7 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
                   <Field label="Reference" name="reference" className="full" />
                   <Field label="Note" name="notes" className="full" />
                 </div>
+                <label className="check"><input type="checkbox" name="allow_over" />Paying more than agreed (it&apos;s really extra)</label>
                 <Submit>Record</Submit>
               </ActionForm>
             </section>

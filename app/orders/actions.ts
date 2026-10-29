@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { authorize } from "@/lib/auth";
-import { formAction, money, optionalDate, optionalUuid, positiveMoney, requiredDate, requiredText, text, UserError, uuid, errorMessage, type ActionState } from "@/lib/actions";
+import { checkbox, formAction, money, optionalDate, optionalUuid, positiveMoney, requiredDate, requiredText, text, UserError, uuid, errorMessage, type ActionState } from "@/lib/actions";
 import { EXPENSE_CATEGORY_VALUES, JOB_STATUS_VALUES, ORDER_SOURCE_VALUES, ORDER_STATUS_VALUES, PAYMENT_METHOD_VALUES } from "@/lib/constants";
 import { db, type Tx } from "@/lib/db";
 import { phoneDigits } from "@/lib/whatsapp";
@@ -14,6 +14,7 @@ import { PROOF_TYPES, uploadFile, directUploadUrl } from "@/lib/storage";
 import { issueDocument, type DocumentRow } from "@/lib/data/documents";
 import { addDays, formatMoney, today } from "@/lib/format";
 import { getSettings } from "@/lib/data/settings";
+import { round } from "@/lib/money";
 import { unstable_rethrow } from "next/navigation";
 
 const touch = (orderId?: string) => {
@@ -259,6 +260,7 @@ const jobSchema = z.object({
 });
 
 export const assignPartner = formAction(jobSchema, async (input, user) => {
+  if (input.advance > input.agreed_amount) throw new UserError("The advance is more than the agreed amount.");
   await db().begin(async (tx) => {
     const [job] = await tx<{ id: string }[]>`
       insert into partner_jobs (order_id, partner_id, description, agreed_amount)
@@ -314,18 +316,31 @@ const partnerPaymentSchema = z.object({
   reference: text(120),
   paid_on: requiredDate,
   notes: text(500),
+  allow_over: checkbox,
 });
 
 export const payPartner = formAction(partnerPaymentSchema, async (input, user) => {
-  const sql = db();
-  if (input.job_id) {
-    const [job] = await sql<{ partner_id: string; order_id: string }[]>`select partner_id, order_id from partner_jobs where id = ${input.job_id}`;
-    if (!job || job.partner_id !== input.partner_id) throw new UserError("That job belongs to a different partner.");
-    touch(job.order_id);
-  }
-  await sql`insert into partner_payments (partner_id, job_id, amount, kind, method, reference, paid_on, notes, created_by)
-            values (${input.partner_id}, ${input.job_id}, ${input.amount}, ${input.kind}, ${input.method}, ${input.reference}, ${input.paid_on}, ${input.notes}, ${user.id})`;
-  await audit(user.id, "partner.paid", "partner", input.partner_id, { amount: input.amount, kind: input.kind, job: input.job_id });
+  const orderId = await db().begin(async (tx) => {
+    let jobOrderId: string | null = null;
+    if (input.job_id) {
+      // Locked so two payments can't both slip under the agreed amount.
+      const [job] = await tx<{ partner_id: string; order_id: string; agreed_amount: number }[]>`
+        select partner_id, order_id, agreed_amount from partner_jobs where id = ${input.job_id} for update`;
+      if (!job || job.partner_id !== input.partner_id) throw new UserError("That job belongs to a different partner.");
+      const [{ paid }] = await tx<{ paid: number }[]>`
+        select coalesce(sum(amount), 0) as paid from partner_payments where job_id = ${input.job_id} and voided_at is null`;
+      // Paying past the agreed amount is usually the same payment recorded twice.
+      if (!input.allow_over && round(paid + input.amount) > job.agreed_amount) {
+        throw new UserError(`${formatMoney(paid)} is already paid on this job, agreed at ${formatMoney(job.agreed_amount)}, so this would overpay by ${formatMoney(round(paid + input.amount - job.agreed_amount))}. Check it wasn't already recorded, or tick "Paying more than agreed".`);
+      }
+      jobOrderId = job.order_id;
+    }
+    await tx`insert into partner_payments (partner_id, job_id, amount, kind, method, reference, paid_on, notes, created_by)
+             values (${input.partner_id}, ${input.job_id}, ${input.amount}, ${input.kind}, ${input.method}, ${input.reference}, ${input.paid_on}, ${input.notes}, ${user.id})`;
+    await audit(user.id, "partner.paid", "partner", input.partner_id, { amount: input.amount, kind: input.kind, job: input.job_id, allow_over: input.allow_over }, tx);
+    return jobOrderId;
+  });
+  if (orderId) touch(orderId);
   revalidatePath(`/partners/${input.partner_id}`);
   revalidatePath("/partners");
   return `${input.kind === "advance" ? "Advance" : "Payment"} recorded.`;

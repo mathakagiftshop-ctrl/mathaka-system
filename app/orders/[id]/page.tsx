@@ -256,6 +256,7 @@ function Partners({ order, matches, allPartners, currency, finance, site }: {
                           <Field label="Date" name="paid_on" type="date" defaultValue={today()} required />
                           <Field label="Reference" name="reference" className="full" />
                         </div>
+                        <label className="check"><input type="checkbox" name="allow_over" />Paying more than agreed (it&apos;s really extra)</label>
                         <Submit>Record payment</Submit>
                       </ActionForm>
                     </div>
